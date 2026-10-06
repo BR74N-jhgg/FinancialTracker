@@ -1,0 +1,785 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 110;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		DBA0E574306FE2F8002F5483 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBC3CF32306E3874005A985E /* WidgetKit.framework */; };
+		DBA0E575306FE2F8002F5483 /* WidgetKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = DBC3CF32306E3874005A985E /* WidgetKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DBA0E577306FE2FA002F5483 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBC3CF34306E3874005A985E /* SwiftUI.framework */; };
+		DBC3CF44306E3876005A985E /* FinancialTrackerWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DBC3CF30306E3874005A985E /* FinancialTrackerWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		DB4DEAFC306D8BBB003064BF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DB4DEAE6306D8BB9003064BF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DB4DEAED306D8BB9003064BF;
+			remoteInfo = FinancialTracker;
+		};
+		DB4DEB06306D8BBB003064BF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DB4DEAE6306D8BB9003064BF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DB4DEAED306D8BB9003064BF;
+			remoteInfo = FinancialTracker;
+		};
+		DBC3CF42306E3876005A985E /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DB4DEAE6306D8BB9003064BF /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DBC3CF2F306E3874005A985E;
+			remoteInfo = FinancialTrackerWidgetsExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		DBA0E576306FE2F8002F5483 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "";
+			dstSubfolder = Frameworks;
+			files = (
+				DBA0E575306FE2F8002F5483 /* WidgetKit.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+		};
+		DBC3CF45306E3876005A985E /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "";
+			dstSubfolder = PlugIns;
+			files = (
+				DBC3CF44306E3876005A985E /* FinancialTrackerWidgetsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		DB4DEAEE306D8BB9003064BF /* FinancialTracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FinancialTracker.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DB4DEAFB306D8BBB003064BF /* FinancialTrackerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinancialTrackerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DB4DEB05306D8BBB003064BF /* FinancialTrackerUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FinancialTrackerUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DBC3CF30306E3874005A985E /* FinancialTrackerWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FinancialTrackerWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DBC3CF32306E3874005A985E /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		DBC3CF34306E3874005A985E /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		DBC3CF65306F8E82005A985E /* FinancialTrackerWidgetsExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FinancialTrackerWidgetsExtension.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DBA0E573306FE2CB002F5483 /* Exceptions for "FinancialTracker" folder in "FinancialTrackerWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Assets.xcassets,
+			);
+			target = DBC3CF2F306E3874005A985E /* FinancialTrackerWidgetsExtension */;
+		};
+		DBC3CF48306E3876005A985E /* Exceptions for "FinancialTrackerWidgets" folder in "FinancialTrackerWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DBC3CF2F306E3874005A985E /* FinancialTrackerWidgetsExtension */;
+		};
+		DBC3CFCD306FA987005A985E /* Exceptions for "FinancialTrackerWidgets" folder in "FinancialTracker" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				FinancialTrackerWidgets.swift,
+			);
+			target = DB4DEAED306D8BB9003064BF /* FinancialTracker */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		DB4DEAF0306D8BB9003064BF /* FinancialTracker */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DBA0E573306FE2CB002F5483 /* Exceptions for "FinancialTracker" folder in "FinancialTrackerWidgetsExtension" target */,
+			);
+			path = FinancialTracker;
+			sourceTree = "<group>";
+		};
+		DB4DEAFE306D8BBB003064BF /* FinancialTrackerTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FinancialTrackerTests;
+			sourceTree = "<group>";
+		};
+		DB4DEB08306D8BBB003064BF /* FinancialTrackerUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FinancialTrackerUITests;
+			sourceTree = "<group>";
+		};
+		DBC3CF36306E3874005A985E /* FinancialTrackerWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DBC3CFCD306FA987005A985E /* Exceptions for "FinancialTrackerWidgets" folder in "FinancialTracker" target */,
+				DBC3CF48306E3876005A985E /* Exceptions for "FinancialTrackerWidgets" folder in "FinancialTrackerWidgetsExtension" target */,
+			);
+			path = FinancialTrackerWidgets;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		DB4DEAEB306D8BB9003064BF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		DB4DEAF8306D8BBB003064BF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		DB4DEB02306D8BBB003064BF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+			);
+		};
+		DBC3CF2D306E3874005A985E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				DBA0E577306FE2FA002F5483 /* SwiftUI.framework in Frameworks */,
+				DBA0E574306FE2F8002F5483 /* WidgetKit.framework in Frameworks */,
+			);
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		DB4DEAE5306D8BB9003064BF = {
+			isa = PBXGroup;
+			children = (
+				DBC3CF65306F8E82005A985E /* FinancialTrackerWidgetsExtension.entitlements */,
+				DB4DEAF0306D8BB9003064BF /* FinancialTracker */,
+				DB4DEAFE306D8BBB003064BF /* FinancialTrackerTests */,
+				DB4DEB08306D8BBB003064BF /* FinancialTrackerUITests */,
+				DBC3CF36306E3874005A985E /* FinancialTrackerWidgets */,
+				DBC3CF31306E3874005A985E /* Frameworks */,
+				DB4DEAEF306D8BB9003064BF /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		DB4DEAEF306D8BB9003064BF /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				DB4DEAEE306D8BB9003064BF /* FinancialTracker.app */,
+				DB4DEAFB306D8BBB003064BF /* FinancialTrackerTests.xctest */,
+				DB4DEB05306D8BBB003064BF /* FinancialTrackerUITests.xctest */,
+				DBC3CF30306E3874005A985E /* FinancialTrackerWidgetsExtension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		DBC3CF31306E3874005A985E /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				DBC3CF32306E3874005A985E /* WidgetKit.framework */,
+				DBC3CF34306E3874005A985E /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		DB4DEAED306D8BB9003064BF /* FinancialTracker */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DB4DEB0D306D8BBB003064BF /* Build configuration list for PBXNativeTarget "FinancialTracker" */;
+			buildPhases = (
+				DB4DEAEA306D8BB9003064BF /* Sources */,
+				DB4DEAEB306D8BB9003064BF /* Frameworks */,
+				DB4DEAEC306D8BB9003064BF /* Resources */,
+				DBC3CF45306E3876005A985E /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DBC3CF43306E3876005A985E /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				DB4DEAF0306D8BB9003064BF /* FinancialTracker */,
+			);
+			name = FinancialTracker;
+			productName = FinancialTracker;
+			productReference = DB4DEAEE306D8BB9003064BF /* FinancialTracker.app */;
+			productType = "com.apple.product-type.application";
+		};
+		DB4DEAFA306D8BBB003064BF /* FinancialTrackerTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DB4DEB10306D8BBB003064BF /* Build configuration list for PBXNativeTarget "FinancialTrackerTests" */;
+			buildPhases = (
+				DB4DEAF7306D8BBB003064BF /* Sources */,
+				DB4DEAF8306D8BBB003064BF /* Frameworks */,
+				DB4DEAF9306D8BBB003064BF /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DB4DEAFD306D8BBB003064BF /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				DB4DEAFE306D8BBB003064BF /* FinancialTrackerTests */,
+			);
+			name = FinancialTrackerTests;
+			productName = FinancialTrackerTests;
+			productReference = DB4DEAFB306D8BBB003064BF /* FinancialTrackerTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		DB4DEB04306D8BBB003064BF /* FinancialTrackerUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DB4DEB13306D8BBB003064BF /* Build configuration list for PBXNativeTarget "FinancialTrackerUITests" */;
+			buildPhases = (
+				DB4DEB01306D8BBB003064BF /* Sources */,
+				DB4DEB02306D8BBB003064BF /* Frameworks */,
+				DB4DEB03306D8BBB003064BF /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DB4DEB07306D8BBB003064BF /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				DB4DEB08306D8BBB003064BF /* FinancialTrackerUITests */,
+			);
+			name = FinancialTrackerUITests;
+			productName = FinancialTrackerUITests;
+			productReference = DB4DEB05306D8BBB003064BF /* FinancialTrackerUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		DBC3CF2F306E3874005A985E /* FinancialTrackerWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DBC3CF49306E3876005A985E /* Build configuration list for PBXNativeTarget "FinancialTrackerWidgetsExtension" */;
+			buildPhases = (
+				DBC3CF2C306E3874005A985E /* Sources */,
+				DBC3CF2D306E3874005A985E /* Frameworks */,
+				DBC3CF2E306E3874005A985E /* Resources */,
+				DBA0E576306FE2F8002F5483 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				DBC3CF36306E3874005A985E /* FinancialTrackerWidgets */,
+			);
+			name = FinancialTrackerWidgetsExtension;
+			productName = FinancialTrackerWidgetsExtension;
+			productReference = DBC3CF30306E3874005A985E /* FinancialTrackerWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DB4DEAE6306D8BB9003064BF /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					DB4DEAED306D8BB9003064BF = {
+						CreatedOnToolsVersion = 27.0;
+					};
+					DB4DEAFA306D8BBB003064BF = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = DB4DEAED306D8BB9003064BF;
+					};
+					DB4DEB04306D8BBB003064BF = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = DB4DEAED306D8BB9003064BF;
+					};
+					DBC3CF2F306E3874005A985E = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = DB4DEAE9306D8BB9003064BF /* Build configuration list for PBXProject "FinancialTracker" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = DB4DEAE5306D8BB9003064BF;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = DB4DEAEF306D8BB9003064BF /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				DB4DEAED306D8BB9003064BF /* FinancialTracker */,
+				DB4DEAFA306D8BBB003064BF /* FinancialTrackerTests */,
+				DB4DEB04306D8BBB003064BF /* FinancialTrackerUITests */,
+				DBC3CF2F306E3874005A985E /* FinancialTrackerWidgetsExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		DB4DEAEC306D8BB9003064BF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		DB4DEAF9306D8BBB003064BF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		DB4DEB03306D8BBB003064BF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+		DBC3CF2E306E3874005A985E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		DB4DEAEA306D8BB9003064BF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		DB4DEAF7306D8BBB003064BF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		DB4DEB01306D8BBB003064BF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+		DBC3CF2C306E3874005A985E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DB4DEAFD306D8BBB003064BF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DB4DEAED306D8BB9003064BF /* FinancialTracker */;
+			targetProxy = DB4DEAFC306D8BBB003064BF /* PBXContainerItemProxy */;
+		};
+		DB4DEB07306D8BBB003064BF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DB4DEAED306D8BB9003064BF /* FinancialTracker */;
+			targetProxy = DB4DEB06306D8BBB003064BF /* PBXContainerItemProxy */;
+		};
+		DBC3CF43306E3876005A985E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DBC3CF2F306E3874005A985E /* FinancialTrackerWidgetsExtension */;
+			targetProxy = DBC3CF42306E3876005A985E /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		DB4DEB0B306D8BBB003064BF /* Debug configuration for PBXProject "FinancialTracker" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		DB4DEB0C306D8BBB003064BF /* Release configuration for PBXProject "FinancialTracker" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		DB4DEB0E306D8BBB003064BF /* Debug configuration for PBXNativeTarget "FinancialTracker" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
+				CODE_SIGN_ENTITLEMENTS = FinancialTracker/FinancialTracker.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryan.FinancialTracker;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		DB4DEB0F306D8BBB003064BF /* Release configuration for PBXNativeTarget "FinancialTracker" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
+				CODE_SIGN_ENTITLEMENTS = FinancialTracker/FinancialTracker.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				IPHONEOS_DEPLOYMENT_TARGET = "$(RECOMMENDED_IPHONEOS_DEPLOYMENT_TARGET)";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryan.FinancialTracker;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		DB4DEB11306D8BBB003064BF /* Debug configuration for PBXNativeTarget "FinancialTrackerTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryan.FinancialTrackerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FinancialTracker.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FinancialTracker";
+			};
+			name = Debug;
+		};
+		DB4DEB12306D8BBB003064BF /* Release configuration for PBXNativeTarget "FinancialTrackerTests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryan.FinancialTrackerTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/FinancialTracker.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/FinancialTracker";
+			};
+			name = Release;
+		};
+		DB4DEB14306D8BBB003064BF /* Debug configuration for PBXNativeTarget "FinancialTrackerUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryan.FinancialTrackerUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FinancialTracker;
+			};
+			name = Debug;
+		};
+		DB4DEB15306D8BBB003064BF /* Release configuration for PBXNativeTarget "FinancialTrackerUITests" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryan.FinancialTrackerUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = FinancialTracker;
+			};
+			name = Release;
+		};
+		DBC3CF46306E3876005A985E /* Debug configuration for PBXNativeTarget "FinancialTrackerWidgetsExtension" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FinancialTrackerWidgetsExtension.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FinancialTrackerWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FinancialTrackerWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryan.FinancialTracker.FinancialTrackerWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DBC3CF47306E3876005A985E /* Release configuration for PBXNativeTarget "FinancialTrackerWidgetsExtension" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = FinancialTrackerWidgetsExtension.entitlements;
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = A52CZTY2C9;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FinancialTrackerWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = FinancialTrackerWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bryan.FinancialTracker.FinancialTrackerWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		DB4DEAE9306D8BB9003064BF /* Build configuration list for PBXProject "FinancialTracker" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DB4DEB0B306D8BBB003064BF /* Debug configuration for PBXProject "FinancialTracker" */,
+				DB4DEB0C306D8BBB003064BF /* Release configuration for PBXProject "FinancialTracker" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		DB4DEB0D306D8BBB003064BF /* Build configuration list for PBXNativeTarget "FinancialTracker" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DB4DEB0E306D8BBB003064BF /* Debug configuration for PBXNativeTarget "FinancialTracker" */,
+				DB4DEB0F306D8BBB003064BF /* Release configuration for PBXNativeTarget "FinancialTracker" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		DB4DEB10306D8BBB003064BF /* Build configuration list for PBXNativeTarget "FinancialTrackerTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DB4DEB11306D8BBB003064BF /* Debug configuration for PBXNativeTarget "FinancialTrackerTests" */,
+				DB4DEB12306D8BBB003064BF /* Release configuration for PBXNativeTarget "FinancialTrackerTests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		DB4DEB13306D8BBB003064BF /* Build configuration list for PBXNativeTarget "FinancialTrackerUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DB4DEB14306D8BBB003064BF /* Debug configuration for PBXNativeTarget "FinancialTrackerUITests" */,
+				DB4DEB15306D8BBB003064BF /* Release configuration for PBXNativeTarget "FinancialTrackerUITests" */,
+			);
+			defaultConfigurationName = Release;
+		};
+		DBC3CF49306E3876005A985E /* Build configuration list for PBXNativeTarget "FinancialTrackerWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DBC3CF46306E3876005A985E /* Debug configuration for PBXNativeTarget "FinancialTrackerWidgetsExtension" */,
+				DBC3CF47306E3876005A985E /* Release configuration for PBXNativeTarget "FinancialTrackerWidgetsExtension" */,
+			);
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = DB4DEAE6306D8BB9003064BF /* Project object */;
+	validationLevel = 1;
+}
