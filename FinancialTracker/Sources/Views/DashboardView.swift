@@ -141,6 +141,7 @@ public struct DashboardView: View {
     @State private var showingAddExpense = false
     @State private var selectedItemToEdit: TransactionItem? = nil
     @State private var activeQuickAction: QuickActionItem? = nil
+    @State private var selectedTrendDay: Int? = nil
     @State private var showingCustomizeShortcuts = false
     @State private var showingAccountsManager: Bool = false
     
@@ -530,54 +531,50 @@ private func recomputeMetrics() {
     // MARK: - 1. Budget Hero Card
     @ViewBuilder
     private var budgetHeroCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(L10n.tr("Monthly Spending", lang: appLanguage))
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                    
-                    Text(totalSpentThisMonth.formattedCurrency(defaultCurrency))
-                        .font(.system(size: 32, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                
-                CircularProgressView(progress: budgetProgress)
-                    .frame(width: 58, height: 58)
-            }
-            
-            ProgressView(value: budgetProgress)
-                .tint(budgetProgress > 0.9 ? .red : (budgetProgress > 0.75 ? .orange : .blue))
-            
-            HStack {
-                Text("\(L10n.tr("Budget", lang: appLanguage)): \(defaultCurrency) \(monthlyBudget.financialIntegerFormatted)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                
-                Spacer()
-                
-                Text("\(remainingBudget.formattedCurrency(defaultCurrency)) \(L10n.tr("remaining", lang: appLanguage))")
-                    .font(.caption)
-                    .foregroundStyle(budgetProgress > 0.9 ? .red : .green)
-                    .lineLimit(1)
-            }
-            
-            if monthlyTrendData.isEmpty || totalSpentThisMonth == 0 {
+        // MARK: - Upgraded Apple-Style Monthly Pacing Trend Line
+            VStack(alignment: .leading, spacing: 6) {
+                // Interactive inspection readout
                 HStack {
+                    if let selectedDay = selectedTrendDay,
+                       let point = monthlyTrendData.first(where: { $0.day == selectedDay }) {
+                        Text(String(format: "Day %d: %@", selectedDay, point.amount.formattedCurrency(defaultCurrency)))
+                            .font(.caption.bold())
+                            .foregroundStyle(.primary)
+                    } else {
+                        Text(L10n.tr("Spending Trajectory", lang: appLanguage))
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Text("No expenses logged this month")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 30)
-                        .lineLimit(1)
-                    Spacer()
+                    let daysInMonth = Calendar.current.range(of: .day, in: .month, for: Date())?.count ?? 30
+                    let today = Calendar.current.component(.day, from: Date())
+                    Text("\(today) / \(daysInMonth) days")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-            } else {
+
                 Chart {
+                    let daysInMonth = Calendar.current.range(of: .day, in: .month, for: Date())?.count ?? 30
+                    let dailyBudgetPace = monthlyBudget > 0 ? (monthlyBudget / Double(daysInMonth)) : 0.0
+
+                    // 1. Ideal Budget Pace Reference Line (Dashed)
+                    if monthlyBudget > 0 {
+                        LineMark(
+                            x: .value("Day", 1),
+                            y: .value("Budget Pace", dailyBudgetPace)
+                        )
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+                        .foregroundStyle(Color.secondary.opacity(0.35))
+
+                        LineMark(
+                            x: .value("Day", daysInMonth),
+                            y: .value("Budget Pace", monthlyBudget)
+                        )
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
+                        .foregroundStyle(Color.secondary.opacity(0.35))
+                    }
+
+                    // 2. Actual Spend Curve & Gradient Area
                     ForEach(monthlyTrendData) { pt in
                         AreaMark(
                             x: .value("Day", pt.day),
@@ -585,34 +582,57 @@ private func recomputeMetrics() {
                         )
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [Color.blue.opacity(0.35), Color.blue.opacity(0.02)],
+                                colors: [
+                                    (pt.amount > (dailyBudgetPace * Double(pt.day)) && monthlyBudget > 0 ? Color.orange : Color.blue).opacity(0.25),
+                                    Color.clear
+                                ],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         )
                         .interpolationMethod(.monotone)
-                        
+
                         LineMark(
                             x: .value("Day", pt.day),
                             y: .value("Spend", pt.amount)
                         )
-                        .foregroundStyle(Color.blue)
-                        .interpolationMethod(.monotone)
                         .lineStyle(StrokeStyle(lineWidth: 2.5))
+                        .foregroundStyle(pt.amount > (dailyBudgetPace * Double(pt.day)) && monthlyBudget > 0 ? Color.orange : Color.blue)
+                        .interpolationMethod(.monotone)
+                    }
+
+                    // 3. Touch Selection RuleMark
+                    if let selectedDay = selectedTrendDay,
+                       let point = monthlyTrendData.first(where: { $0.day == selectedDay }) {
+                        RuleMark(x: .value("Selected Day", selectedDay))
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
+                            .foregroundStyle(Color.primary.opacity(0.6))
+
+                        PointMark(
+                            x: .value("Selected Day", selectedDay),
+                            y: .value("Spend", point.amount)
+                        )
+                        .symbolSize(45)
+                        .foregroundStyle(Color.blue)
                     }
                 }
-                .chartXScale(domain: 1...Calendar.current.range(of: .day, in: .month, for: Date())!.count)
+                .chartXScale(domain: 1...(Calendar.current.range(of: .day, in: .month, for: Date())?.count ?? 30))
                 .chartYAxis(.hidden)
                 .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 5)) { _ in
-                        AxisGridLine().foregroundStyle(.secondary.opacity(0.2))
-                        AxisTick().foregroundStyle(.secondary.opacity(0.4))
-                        AxisValueLabel()
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    AxisMarks(values: [1, 7, 14, 21, 28]) { val in
+                        AxisGridLine().foregroundStyle(.secondary.opacity(0.15))
+                        AxisTick().foregroundStyle(.secondary.opacity(0.3))
+                        AxisValueLabel {
+                            if let intVal = val.as(Int.self) {
+                                Text("\(intVal)")
+                                    .font(.system(size: 9, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
                 }
-                .frame(height: 90)
+                .chartXSelection(value: $selectedTrendDay)
+                .frame(height: 105)
                 .padding(.top, 4)
             }
         }
