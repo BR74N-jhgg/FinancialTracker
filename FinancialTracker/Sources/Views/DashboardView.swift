@@ -258,9 +258,17 @@ public struct DashboardView: View {
             .sheet(isPresented: $showingAccountsManager) {
                 PaymentMethodManagementView()
             }
-                .task(id: dashboardCalculationKey) {
-                    await recomputeMetrics()
-                }
+            .onAppear {
+                recomputeMetrics()
+            }
+            .task(id: dashboardCalculationKey) {
+                recomputeMetrics()
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    recomputeMetrics()
+                    }
+            }
         }
     }
 
@@ -278,8 +286,9 @@ public struct DashboardView: View {
         let merchant: String
     }
     
-    private func recomputeMetrics() {
-        guard scenePhase == .active else { return }
+private func recomputeMetrics() {
+        // 允許啟動時計算，僅在真正進入後台時跳過
+        guard scenePhase != .background else { return }
 
         var inputs: [DashboardInput] = []
         inputs.reserveCapacity(transactions.count)
