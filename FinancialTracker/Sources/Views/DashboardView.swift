@@ -635,7 +635,7 @@ private func recomputeMetrics() {
                 .frame(height: 105)
                 .padding(.top, 4)
             }
-        }
+        
         .padding(18)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 18))
