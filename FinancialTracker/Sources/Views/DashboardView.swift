@@ -265,164 +265,114 @@ public struct DashboardView: View {
             .task(id: dashboardCalculationKey) {
                 recomputeMetrics()
             }
+            .onChange(of: transactions.count) { _, _ in
+                recomputeMetrics()
+            }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
                     recomputeMetrics()
-                    }
+                }
             }
         }
     }
 
-    // MARK: - High-Efficiency Metrics Calculation
-    nonisolated private struct DashboardInput: Sendable {
-        let isExpense: Bool
-        let isIncome: Bool
-        let isExcludedFromBudget: Bool
-        let timestamp: Date
-        let amount: Double
-        let categoryName: String
-        let categoryColorHex: String
-        let paymentMethodName: String
-        let paymentMethodColorHex: String
-        let merchant: String
-    }
-    
-private func recomputeMetrics() {
-        // 允許啟動時計算，僅在真正進入後台時跳過
-        guard scenePhase != .background else { return }
-
-        var inputs: [DashboardInput] = []
-        inputs.reserveCapacity(transactions.count)
-        for item in transactions {
-            let catName = item.category?.name ?? "Other"
-            let catColor = item.category?.colorHex ?? "#007AFF"
-            let pmName = item.paymentMethod?.name ?? "Other"
-            let pmColor = item.paymentMethod?.colorHex ?? "#007AFF"
-            let merch = item.merchant.isEmpty ? "General" : item.merchant
-            inputs.append(
-                DashboardInput(
-                    isExpense: item.type == .expense,
-                    isIncome: item.type == .income,
-                    isExcludedFromBudget: item.isExcludedFromBudget,
-                    timestamp: item.timestamp,
-                    amount: item.amount,
-                    categoryName: catName,
-                    categoryColorHex: catColor,
-                    paymentMethodName: pmName,
-                    paymentMethodColorHex: pmColor,
-                    merchant: merch
-                )
-            )
-        }
-
+    // MARK: - Instant Synchronous Metrics Calculation (Loads on Frame 1 like Net Worth)
+    private func recomputeMetrics() {
+        let calendar = Calendar.current
+        let now = Date()
+        let currentDay = max(1, calendar.component(.day, from: now))
         let lang = appLanguage
         let incomeLabel = L10n.tr("Income", lang: lang)
         let expenseLabel = L10n.tr("Expense", lang: lang)
         let weekdayNames = L10n.weekdayNames(lang: lang)
-        let now = Date()
 
-        Task.detached(priority: .userInitiated) {
-            let calendar = Calendar.current
-            let currentDay = calendar.component(.day, from: now)
-
-            let expenses = inputs.filter { $0.isExpense }
-            let thisMonthExpenses = expenses.filter {
-                calendar.isDate($0.timestamp, equalTo: now, toGranularity: .month) && !$0.isExcludedFromBudget
-            }
-            let spent = thisMonthExpenses.reduce(0.0) { $0 + $1.amount }
-
-            // 1. Monthly Trend Pacing
-            var dailyTotals = [Int: Double]()
-            for t in thisMonthExpenses {
-                let day = calendar.component(.day, from: t.timestamp)
-                dailyTotals[day, default: 0.0] += t.amount
-            }
-            var cumulative: Double = 0.0
-            var calculatedPoints = [TrendPoint]()
-            for d in 1...max(1, currentDay) {
-                cumulative += dailyTotals[d] ?? 0.0
-                calculatedPoints.append(TrendPoint(day: d, amount: cumulative))
-            }
-            let finalPoints = calculatedPoints
-
-            // 2. Day of Week
-            var weekTotals = [Int: Double]()
-            for i in 1...7 { weekTotals[i] = 0.0 }
-            for t in expenses {
-                let w = calendar.component(.weekday, from: t.timestamp)
-                weekTotals[w, default: 0.0] += t.amount
-            }
-            let order = [2, 3, 4, 5, 6, 7, 1]
-            let dayOfWeek = order.map {
-                DashboardDayItem(day: $0, name: weekdayNames[$0 - 1], total: weekTotals[$0] ?? 0.0)
-            }
-
-            // 3. Cash Flow
-            let totalIncome = inputs.filter { $0.isIncome }.reduce(0.0) { $0 + $1.amount }
-            let cashFlow = [
-                DashboardFlowBar(label: incomeLabel, amount: totalIncome, isIncome: true),
-                DashboardFlowBar(label: expenseLabel, amount: spent, isIncome: false)
-            ]
-
-            // 4. Categories
-            var catTotals = [String: Double]()
-            var catColors = [String: String]()
-            for t in expenses {
-                catTotals[t.categoryName, default: 0.0] += t.amount
-                if catColors[t.categoryName] == nil {
-                    catColors[t.categoryName] = t.categoryColorHex
-                }
-            }
-            let categories = catTotals.map { name, total in
-                DashboardCatShare(
-                    name: name,
-                    colorHex: catColors[name] ?? "#007AFF",
-                    total: total
-                )
-            }.sorted { $0.total > $1.total }.prefix(4).map { $0 }
-
-            // 5. Payment Methods
-            var methodTotals = [String: Double]()
-            var methodColors = [String: String]()
-            for t in expenses {
-                methodTotals[t.paymentMethodName, default: 0.0] += t.amount
-                if methodColors[t.paymentMethodName] == nil {
-                    methodColors[t.paymentMethodName] = t.paymentMethodColorHex
-                }
-            }
-            let paymentMethods = methodTotals.map { name, total in
-                DashboardMethodItem(
-                    name: name,
-                    colorHex: methodColors[name] ?? "#007AFF",
-                    total: total
-                )
-            }.sorted { $0.total > $1.total }.prefix(3).map { $0 }
-
-            // 6. Top Merchants
-            var merchantTotals = [String: Double]()
-            for t in expenses {
-                merchantTotals[t.merchant, default: 0.0] += t.amount
-            }
-            let topMerchants = merchantTotals.map { name, total in
-                DashboardMerchantItem(
-                    name: name,
-                    total: total
-                )
-            }.sorted { $0.total > $1.total }.prefix(4).map { $0 }
-
-            await MainActor.run {
-                self.totalSpentThisMonth = spent
-                self.monthlyTrendData = finalPoints
-                self.cachedDayOfWeek = dayOfWeek
-                self.cachedCashFlow = cashFlow
-                self.cachedCategories = categories
-                self.cachedPaymentMethods = paymentMethods
-                self.cachedTopMerchants = topMerchants
-            }
+        let activeTransactions = transactions.filter { !$0.isDeleted }
+        let expenses = activeTransactions.filter { $0.type == .expense }
+        let thisMonthExpenses = expenses.filter {
+            calendar.isDate($0.timestamp, equalTo: now, toGranularity: .month) && !$0.isExcludedFromBudget
         }
+        let spent = thisMonthExpenses.reduce(0.0) { $0 + $1.amount }
+
+        // 1. Monthly Trend Pacing (Day 1 through Today)
+        var dailyTotals = [Int: Double]()
+        for t in thisMonthExpenses {
+            let day = calendar.component(.day, from: t.timestamp)
+            dailyTotals[day, default: 0.0] += t.amount
+        }
+        var cumulative: Double = 0.0
+        var calculatedPoints: [TrendPoint] = []
+        for d in 1...currentDay {
+            cumulative += dailyTotals[d] ?? 0.0
+            calculatedPoints.append(TrendPoint(day: d, amount: cumulative))
+        }
+
+        // 2. Day of Week
+        var weekTotals = [Int: Double]()
+        for i in 1...7 { weekTotals[i] = 0.0 }
+        for t in expenses {
+            let w = calendar.component(.weekday, from: t.timestamp)
+            weekTotals[w, default: 0.0] += t.amount
+        }
+        let order = [2, 3, 4, 5, 6, 7, 1]
+        let dayOfWeek = order.map {
+            DashboardDayItem(day: $0, name: weekdayNames[$0 - 1], total: weekTotals[$0] ?? 0.0)
+        }
+
+        // 3. Cash Flow
+        let totalIncome = activeTransactions.filter { $0.type == .income }.reduce(0.0) { $0 + $1.amount }
+        let cashFlow = [
+            DashboardFlowBar(label: incomeLabel, amount: totalIncome, isIncome: true),
+            DashboardFlowBar(label: expenseLabel, amount: spent, isIncome: false)
+        ]
+
+        // 4. Categories
+        var catTotals = [String: Double]()
+        var catColors = [String: String]()
+        for t in expenses {
+            let catName = t.category?.name ?? "Other"
+            let catColor = t.category?.colorHex ?? "#007AFF"
+            catTotals[catName, default: 0.0] += t.amount
+            if catColors[catName] == nil { catColors[catName] = catColor }
+        }
+        let categories = catTotals.map { name, total in
+            DashboardCatShare(name: name, colorHex: catColors[name] ?? "#007AFF", total: total)
+        }.sorted { $0.total > $1.total }.prefix(4).map { $0 }
+
+        // 5. Payment Methods
+        var methodTotals = [String: Double]()
+        var methodColors = [String: String]()
+        for t in expenses {
+            let pmName = t.paymentMethod?.name ?? "Other"
+            let pmColor = t.paymentMethod?.colorHex ?? "#007AFF"
+            methodTotals[pmName, default: 0.0] += t.amount
+            if methodColors[pmName] == nil { methodColors[pmName] = pmColor }
+        }
+        let paymentMethods = methodTotals.map { name, total in
+            DashboardMethodItem(name: name, colorHex: methodColors[name] ?? "#007AFF", total: total)
+        }.sorted { $0.total > $1.total }.prefix(3).map { $0 }
+
+        // 6. Top Merchants
+        var merchantTotals = [String: Double]()
+        for t in expenses {
+            let merch = t.merchant.isEmpty ? "General" : t.merchant
+            merchantTotals[merch, default: 0.0] += t.amount
+        }
+        let topMerchants = merchantTotals.map { name, total in
+            DashboardMerchantItem(name: name, total: total)
+        }.sorted { $0.total > $1.total }.prefix(4).map { $0 }
+
+        // Update state synchronously on MainActor so Frame 1 is never blank
+        self.totalSpentThisMonth = spent
+        self.monthlyTrendData = calculatedPoints
+        self.cachedDayOfWeek = dayOfWeek
+        self.cachedCashFlow = cashFlow
+        self.cachedCategories = categories
+        self.cachedPaymentMethods = paymentMethods
+        self.cachedTopMerchants = topMerchants
 
         WidgetSyncManager.shared.syncWidget(context: modelContext)
     }
+
 
     // MARK: - 0. Net Worth Hero Card
     @ViewBuilder
