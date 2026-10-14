@@ -3,7 +3,6 @@ import SwiftUI
 import SwiftData
 import Charts
 
-
 // MARK: - Customizable Quick Action Item Model
 public struct QuickActionItem: Identifiable, Codable, Equatable {
     public var id: String
@@ -124,6 +123,17 @@ public struct DashboardMerchantItem: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct DashboardMetricsSnapshot: Equatable, Sendable {
+    public let key: Int
+    public let totalSpentThisMonth: Double
+    public let monthlyTrendData: [TrendPoint]
+    public let dayOfWeek: [DashboardDayItem]
+    public let cashFlow: [DashboardFlowBar]
+    public let categories: [DashboardCatShare]
+    public let paymentMethods: [DashboardMethodItem]
+    public let topMerchants: [DashboardMerchantItem]
+}
+
 public struct DashboardView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -141,30 +151,69 @@ public struct DashboardView: View {
     @State private var showingAddExpense = false
     @State private var selectedItemToEdit: TransactionItem? = nil
     @State private var activeQuickAction: QuickActionItem? = nil
-    @State private var selectedTrendDay: Int? = nil
     @State private var showingCustomizeShortcuts = false
     @State private var showingAccountsManager: Bool = false
     
-    @State private var totalSpentThisMonth: Double = 0.0
-    @State private var monthlyTrendData: [TrendPoint] = []
-    @State private var cachedDayOfWeek: [DashboardDayItem] = []
-    @State private var cachedCashFlow: [DashboardFlowBar] = []
-    @State private var cachedCategories: [DashboardCatShare] = []
-    @State private var cachedPaymentMethods: [DashboardMethodItem] = []
-    @State private var cachedTopMerchants: [DashboardMerchantItem] = []
+    // Cached snapshot + synchronous fallback ensures Frame-1 rendering on cold launch
+    @State private var cachedSnapshot: DashboardMetricsSnapshot? = nil
+    @State private var selectedTrendDay: Int? = nil
     
-    // Deduplicates metric calculations and automatically cancels stale tasks
-        private var dashboardCalculationKey: Int {
-            var hasher = Hasher()
-            hasher.combine(transactions.count)
-            hasher.combine(monthlyBudget)
-            hasher.combine(appLanguage)
-            if let first = transactions.first {
-                hasher.combine(first.timestamp)
-                hasher.combine(first.amount)
-            }
-            return hasher.finalize()
+    // Tracks any change to transactions, budget, currency, or language
+    private var dashboardCalculationKey: Int {
+        var hasher = Hasher()
+        hasher.combine(transactions.count)
+        hasher.combine(monthlyBudget)
+        hasher.combine(appLanguage)
+        hasher.combine(defaultCurrency)
+        for item in transactions.prefix(12) {
+            hasher.combine(item.id)
+            hasher.combine(item.amount)
+            hasher.combine(item.timestamp)
+            hasher.combine(item.type.rawValue)
+            hasher.combine(item.isExcludedFromBudget)
+            hasher.combine(item.category?.name ?? "")
+            hasher.combine(item.paymentMethod?.name ?? "")
         }
+        return hasher.finalize()
+    }
+    
+    // Frame-0 safe metrics: if @State cache hasn't caught up yet on cold start,
+    // computes synchronously from @Query transactions just like Net Worth does.
+    private var currentMetrics: DashboardMetricsSnapshot {
+        let key = dashboardCalculationKey
+        if let cached = cachedSnapshot, cached.key == key {
+            return cached
+        }
+        return buildMetricsSnapshot(forKey: key)
+    }
+    
+    private var totalSpentThisMonth: Double {
+        currentMetrics.totalSpentThisMonth
+    }
+    
+    private var monthlyTrendData: [TrendPoint] {
+        currentMetrics.monthlyTrendData
+    }
+    
+    private var cachedDayOfWeek: [DashboardDayItem] {
+        currentMetrics.dayOfWeek
+    }
+    
+    private var cachedCashFlow: [DashboardFlowBar] {
+        currentMetrics.cashFlow
+    }
+    
+    private var cachedCategories: [DashboardCatShare] {
+        currentMetrics.categories
+    }
+    
+    private var cachedPaymentMethods: [DashboardMethodItem] {
+        currentMetrics.paymentMethods
+    }
+    
+    private var cachedTopMerchants: [DashboardMerchantItem] {
+        currentMetrics.topMerchants
+    }
     
     private var onNavigateToAnalytics: (() -> Void)? = nil
 
@@ -192,7 +241,6 @@ public struct DashboardView: View {
         }
         return QuickActionItem.defaultItems
     }
-
     
     private var remainingBudget: Double {
         max(0.0, monthlyBudget - totalSpentThisMonth)
@@ -217,8 +265,8 @@ public struct DashboardView: View {
                 .padding(.bottom, 24)
             }
             .appPullToRefresh {
-                            recomputeMetrics()
-                        }
+                recomputeMetrics(forceSyncWidget: true)
+            }
             .background(Color(.systemGroupedBackground))
             .navigationTitle(L10n.tr("Dashboard", lang: appLanguage))
             .toolbar {
@@ -260,24 +308,24 @@ public struct DashboardView: View {
                 PaymentMethodManagementView()
             }
             .onAppear {
-                recomputeMetrics()
+                recomputeMetrics(forceSyncWidget: true)
             }
             .task(id: dashboardCalculationKey) {
-                recomputeMetrics()
+                recomputeMetrics(forceSyncWidget: true)
             }
             .onChange(of: transactions.count) { _, _ in
-                recomputeMetrics()
+                recomputeMetrics(forceSyncWidget: true)
             }
             .onChange(of: scenePhase) { _, newPhase in
                 if newPhase == .active {
-                    recomputeMetrics()
+                    recomputeMetrics(forceSyncWidget: false)
                 }
             }
         }
     }
 
-    // MARK: - Instant Synchronous Metrics Calculation (Loads on Frame 1 like Net Worth)
-    private func recomputeMetrics() {
+    // MARK: - Synchronous, Zero-Delay Metrics Calculation
+    private func buildMetricsSnapshot(forKey key: Int) -> DashboardMetricsSnapshot {
         let calendar = Calendar.current
         let now = Date()
         let currentDay = max(1, calendar.component(.day, from: now))
@@ -285,94 +333,124 @@ public struct DashboardView: View {
         let incomeLabel = L10n.tr("Income", lang: lang)
         let expenseLabel = L10n.tr("Expense", lang: lang)
         let weekdayNames = L10n.weekdayNames(lang: lang)
-
-        let activeTransactions = transactions.filter { !$0.isDeleted }
-        let expenses = activeTransactions.filter { $0.type == .expense }
-        let thisMonthExpenses = expenses.filter {
-            calendar.isDate($0.timestamp, equalTo: now, toGranularity: .month) && !$0.isExcludedFromBudget
-        }
-        let spent = thisMonthExpenses.reduce(0.0) { $0 + $1.amount }
-
-        // 1. Monthly Trend Pacing (Day 1 through Today)
+        
+        var spentThisMonth: Double = 0.0
+        var totalIncomeThisMonth: Double = 0.0
         var dailyTotals = [Int: Double]()
-        for t in thisMonthExpenses {
-            let day = calendar.component(.day, from: t.timestamp)
-            dailyTotals[day, default: 0.0] += t.amount
-        }
-        var cumulative: Double = 0.0
-        var calculatedPoints: [TrendPoint] = []
-        for d in 1...currentDay {
-            cumulative += dailyTotals[d] ?? 0.0
-            calculatedPoints.append(TrendPoint(day: d, amount: cumulative))
-        }
-
-        // 2. Day of Week
-        var weekTotals = [Int: Double]()
-        for i in 1...7 { weekTotals[i] = 0.0 }
-        for t in expenses {
-            let w = calendar.component(.weekday, from: t.timestamp)
-            weekTotals[w, default: 0.0] += t.amount
-        }
-        let order = [2, 3, 4, 5, 6, 7, 1]
-        let dayOfWeek = order.map {
-            DashboardDayItem(day: $0, name: weekdayNames[$0 - 1], total: weekTotals[$0] ?? 0.0)
-        }
-
-        // 3. Cash Flow
-        let totalIncome = activeTransactions.filter { $0.type == .income }.reduce(0.0) { $0 + $1.amount }
-        let cashFlow = [
-            DashboardFlowBar(label: incomeLabel, amount: totalIncome, isIncome: true),
-            DashboardFlowBar(label: expenseLabel, amount: spent, isIncome: false)
-        ]
-
-        // 4. Categories
+        var weekTotals: [Int: Double] = [1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0]
         var catTotals = [String: Double]()
         var catColors = [String: String]()
-        for t in expenses {
-            let catName = t.category?.name ?? "Other"
-            let catColor = t.category?.colorHex ?? "#007AFF"
-            catTotals[catName, default: 0.0] += t.amount
-            if catColors[catName] == nil { catColors[catName] = catColor }
-        }
-        let categories = catTotals.map { name, total in
-            DashboardCatShare(name: name, colorHex: catColors[name] ?? "#007AFF", total: total)
-        }.sorted { $0.total > $1.total }.prefix(4).map { $0 }
-
-        // 5. Payment Methods
         var methodTotals = [String: Double]()
         var methodColors = [String: String]()
-        for t in expenses {
-            let pmName = t.paymentMethod?.name ?? "Other"
-            let pmColor = t.paymentMethod?.colorHex ?? "#007AFF"
-            methodTotals[pmName, default: 0.0] += t.amount
-            if methodColors[pmName] == nil { methodColors[pmName] = pmColor }
-        }
-        let paymentMethods = methodTotals.map { name, total in
-            DashboardMethodItem(name: name, colorHex: methodColors[name] ?? "#007AFF", total: total)
-        }.sorted { $0.total > $1.total }.prefix(3).map { $0 }
-
-        // 6. Top Merchants
         var merchantTotals = [String: Double]()
-        for t in expenses {
-            let merch = t.merchant.isEmpty ? "General" : t.merchant
-            merchantTotals[merch, default: 0.0] += t.amount
+        
+        for item in transactions {
+            let isCurrentMonth = calendar.isDate(item.timestamp, equalTo: now, toGranularity: .month)
+            
+            if item.type == .income {
+                if isCurrentMonth {
+                    totalIncomeThisMonth += item.amount
+                }
+                continue
+            }
+            
+            guard item.type == .expense else { continue }
+            
+            let amount = item.amount
+            let catName = item.category?.name ?? "Other"
+            let catColor = item.category?.colorHex ?? "#007AFF"
+            let pmName = item.paymentMethod?.name ?? "Other"
+            let pmColor = item.paymentMethod?.colorHex ?? "#007AFF"
+            let merch = item.merchant.isEmpty ? catName : item.merchant
+            
+            if isCurrentMonth && !item.isExcludedFromBudget {
+                spentThisMonth += amount
+                let day = calendar.component(.day, from: item.timestamp)
+                dailyTotals[day, default: 0.0] += amount
+            }
+            
+            let weekday = calendar.component(.weekday, from: item.timestamp)
+            weekTotals[weekday, default: 0.0] += amount
+            
+            catTotals[catName, default: 0.0] += amount
+            if catColors[catName] == nil {
+                catColors[catName] = catColor
+            }
+            
+            methodTotals[pmName, default: 0.0] += amount
+            if methodColors[pmName] == nil {
+                methodColors[pmName] = pmColor
+            }
+            
+            merchantTotals[merch, default: 0.0] += amount
         }
-        let topMerchants = merchantTotals.map { name, total in
+        
+        // 1. Cumulative Monthly Trend Pacing (Day 1 ... Today)
+        var cumulative: Double = 0.0
+        var trendPoints: [TrendPoint] = []
+        trendPoints.reserveCapacity(currentDay)
+        for day in 1...currentDay {
+            cumulative += dailyTotals[day] ?? 0.0
+            trendPoints.append(TrendPoint(day: day, amount: cumulative))
+        }
+        
+        // 2. Day of Week (Mon -> Sun)
+        let weekdayOrder = [2, 3, 4, 5, 6, 7, 1]
+        let dayOfWeekItems = weekdayOrder.map { w in
+            let safeName = (w - 1 >= 0 && w - 1 < weekdayNames.count) ? weekdayNames[w - 1] : "D\(w)"
+            return DashboardDayItem(day: w, name: safeName, total: weekTotals[w] ?? 0.0)
+        }
+        
+        // 3. Cash Flow
+        let cashFlowItems = [
+            DashboardFlowBar(label: incomeLabel, amount: totalIncomeThisMonth, isIncome: true),
+            DashboardFlowBar(label: expenseLabel, amount: spentThisMonth, isIncome: false)
+        ]
+        
+        // 4. Top Categories
+        let categoryItems = catTotals.map { name, total in
+            DashboardCatShare(name: name, colorHex: catColors[name] ?? "#007AFF", total: total)
+        }
+        .sorted { $0.total > $1.total }
+        .prefix(4)
+        .map { $0 }
+        
+        // 5. Top Payment Methods
+        let methodItems = methodTotals.map { name, total in
+            DashboardMethodItem(name: name, colorHex: methodColors[name] ?? "#007AFF", total: total)
+        }
+        .sorted { $0.total > $1.total }
+        .prefix(3)
+        .map { $0 }
+        
+        // 6. Top Merchants
+        let merchantItems = merchantTotals.map { name, total in
             DashboardMerchantItem(name: name, total: total)
-        }.sorted { $0.total > $1.total }.prefix(4).map { $0 }
-
-        // Update state synchronously on MainActor so Frame 1 is never blank
-        self.totalSpentThisMonth = spent
-        self.monthlyTrendData = calculatedPoints
-        self.cachedDayOfWeek = dayOfWeek
-        self.cachedCashFlow = cashFlow
-        self.cachedCategories = categories
-        self.cachedPaymentMethods = paymentMethods
-        self.cachedTopMerchants = topMerchants
-
-        WidgetSyncManager.shared.syncWidget(context: modelContext)
+        }
+        .sorted { $0.total > $1.total }
+        .prefix(4)
+        .map { $0 }
+        
+        return DashboardMetricsSnapshot(
+            key: key,
+            totalSpentThisMonth: spentThisMonth,
+            monthlyTrendData: trendPoints,
+            dayOfWeek: dayOfWeekItems,
+            cashFlow: cashFlowItems,
+            categories: categoryItems,
+            paymentMethods: methodItems,
+            topMerchants: merchantItems
+        )
     }
-
+    
+    private func recomputeMetrics(forceSyncWidget: Bool = false) {
+        let key = dashboardCalculationKey
+        let snapshot = buildMetricsSnapshot(forKey: key)
+        cachedSnapshot = snapshot
+        if forceSyncWidget {
+            WidgetSyncManager.shared.syncWidget(context: modelContext)
+        }
+    }
 
     // MARK: - 0. Net Worth Hero Card
     @ViewBuilder
@@ -422,10 +500,6 @@ public struct DashboardView: View {
             HStack(spacing: 12) {
                 HStack(spacing: 6) {
                     Circle().fill(Color.green).frame(width: 8, height: 8)
-/*                    Text(L10n.tr("Assets", lang: appLanguage))
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.8))
-                    */
                     Text(isPrivacyMode ? "••••" : String(totalAssets.formattedCurrency(defaultCurrency)))
                         .font(.caption.bold())
                         .foregroundStyle(.white)
@@ -436,10 +510,6 @@ public struct DashboardView: View {
                 
                 HStack(spacing: 6) {
                     Circle().fill(Color.orange).frame(width: 8, height: 8)
-/*                    Text(L10n.tr("Liabilities", lang: appLanguage))
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.8))
- */
                     Text(isPrivacyMode ? "••••" : String(totalLiabilities.formattedCurrency(defaultCurrency)))
                         .font(.caption.bold())
                         .foregroundStyle(.white)
@@ -478,114 +548,245 @@ public struct DashboardView: View {
         .shadow(color: Color.blue.opacity(0.2), radius: 8, x: 0, y: 4)
     }
 
-    // MARK: - 1. Budget Hero Card
+    // MARK: - 1. Budget Hero Card (Upgraded Proportional Trend & Pace Line)
     @ViewBuilder
     private var budgetHeroCard: some View {
-        // MARK: - Upgraded Apple-Style Monthly Pacing Trend Line
-            VStack(alignment: .leading, spacing: 6) {
-                // Interactive inspection readout
+        let calendar = Calendar.current
+        let now = Date()
+        let daysInMonth = calendar.range(of: .day, in: .month, for: now)?.count ?? 30
+        let currentDay = max(1, calendar.component(.day, from: now))
+        let dailyBudgetPace = monthlyBudget > 0 ? (monthlyBudget / Double(daysInMonth)) : 0.0
+        let idealSpendToday = dailyBudgetPace * Double(currentDay)
+        let paceDelta = idealSpendToday - totalSpentThisMonth
+        let isUnderPace = paceDelta >= 0
+        
+        // Proportional Y-axis ceiling so 9% spend looks like 9% of budget, while keeping the full month pace visible
+        let yMax = max(monthlyBudget * 1.05, totalSpentThisMonth * 1.15, 100.0)
+        
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(L10n.tr("Monthly Spending", lang: appLanguage))
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    
+                    Text(isPrivacyMode ? "\(defaultCurrency) ••••" : totalSpentThisMonth.formattedCurrency(defaultCurrency))
+                        .font(.system(size: 32, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                
+                CircularProgressView(progress: budgetProgress)
+                    .frame(width: 58, height: 58)
+            }
+            
+            ProgressView(value: budgetProgress)
+                .tint(budgetProgress > 0.9 ? .red : (budgetProgress > 0.75 ? .orange : .blue))
+            
+            HStack {
+                Text("\(L10n.tr("Budget", lang: appLanguage)): \(defaultCurrency) \(monthlyBudget.financialIntegerFormatted)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                
+                Spacer()
+                
+                Text("\(remainingBudget.formattedCurrency(defaultCurrency)) \(L10n.tr("remaining", lang: appLanguage))")
+                    .font(.caption)
+                    .foregroundStyle(budgetProgress > 0.9 ? .red : .green)
+                    .lineLimit(1)
+            }
+            
+            if monthlyTrendData.isEmpty || (totalSpentThisMonth == 0 && monthlyBudget <= 0) {
                 HStack {
+                    Spacer()
+                    Text(L10n.tr("No expenses logged this month", lang: appLanguage))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 30)
+                        .lineLimit(1)
+                    Spacer()
+                }
+            } else {
+                // Interactive Scrubbing / Pace Status Header
+                HStack(spacing: 6) {
                     if let selectedDay = selectedTrendDay,
                        let point = monthlyTrendData.first(where: { $0.day == selectedDay }) {
-                        Text(String(format: "Day %d: %@", selectedDay, point.amount.formattedCurrency(defaultCurrency)))
-                            .font(.caption.bold())
+                        let targetForDay = dailyBudgetPace * Double(selectedDay)
+                        Image(systemName: "hand.point.up.left.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.blue)
+                        Text("Day \(selectedDay): \(point.amount.formattedCurrency(defaultCurrency))")
+                            .font(.caption2.bold())
                             .foregroundStyle(.primary)
+                        Spacer()
+                        if monthlyBudget > 0 {
+                            Text("Pace: \(targetForDay.formattedCurrency(defaultCurrency))")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     } else {
-                        Text(L10n.tr("Spending Trajectory", lang: appLanguage))
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(.secondary)
+                        Circle()
+                            .fill(isUnderPace ? Color.green : Color.orange)
+                            .frame(width: 6, height: 6)
+                        Text(
+                            isUnderPace
+                            ? (appLanguage == "zh-HK"
+                                ? "進度良好 • 比預算進度少 \(abs(paceDelta).formattedCurrency(defaultCurrency))"
+                                : "On Track • \(abs(paceDelta).formattedCurrency(defaultCurrency)) under pace")
+                            : (appLanguage == "zh-HK"
+                                ? "注意進度 • 比預算進度多 \(abs(paceDelta).formattedCurrency(defaultCurrency))"
+                                : "Pacing High • \(abs(paceDelta).formattedCurrency(defaultCurrency)) over pace")
+                        )
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(isUnderPace ? .green : .orange)
+                        .lineLimit(1)
+                        
+                        Spacer()
+                        
+                        HStack(spacing: 4) {
+                            RoundedRectangle(cornerRadius: 1)
+                                .fill(Color.secondary.opacity(0.5))
+                                .frame(width: 10, height: 2)
+                            Text(appLanguage == "zh-HK" ? "理想進度" : "Budget Pace")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    Spacer()
-                    let daysInMonth = Calendar.current.range(of: .day, in: .month, for: Date())?.count ?? 30
-                    let today = Calendar.current.component(.day, from: Date())
-                    Text("\(today) / \(daysInMonth) days")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
                 }
-
+                .padding(.top, 2)
+                
+                let lineColor: Color = budgetProgress > 0.9 ? .red : (isUnderPace ? .blue : .orange)
+                
                 Chart {
-                    let daysInMonth = Calendar.current.range(of: .day, in: .month, for: Date())?.count ?? 30
-                    let dailyBudgetPace = monthlyBudget > 0 ? (monthlyBudget / Double(daysInMonth)) : 0.0
-
-                    // 1. Ideal Budget Pace Reference Line (Dashed)
+                    // 1. Ideal Budget Pace Line (Day 1 -> End of Month)
                     if monthlyBudget > 0 {
                         LineMark(
                             x: .value("Day", 1),
-                            y: .value("Budget Pace", dailyBudgetPace)
+                            y: .value("Ideal Pace", dailyBudgetPace),
+                            series: .value("Series", "BudgetPace")
                         )
+                        .foregroundStyle(Color.secondary.opacity(0.45))
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
-                        .foregroundStyle(Color.secondary.opacity(0.35))
-
+                        
                         LineMark(
                             x: .value("Day", daysInMonth),
-                            y: .value("Budget Pace", monthlyBudget)
+                            y: .value("Ideal Pace", monthlyBudget),
+                            series: .value("Series", "BudgetPace")
                         )
+                        .foregroundStyle(Color.secondary.opacity(0.45))
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
-                        .foregroundStyle(Color.secondary.opacity(0.35))
                     }
-
-                    // 2. Actual Spend Curve & Gradient Area
+                    
+                    // 2. Actual Cumulative Spending Area & Line (Day 1 -> Today)
                     ForEach(monthlyTrendData) { pt in
                         AreaMark(
                             x: .value("Day", pt.day),
-                            y: .value("Spend", pt.amount)
+                            yStart: .value("Baseline", 0),
+                            yEnd: .value("Spend", pt.amount)
                         )
                         .foregroundStyle(
                             LinearGradient(
-                                colors: [
-                                    (pt.amount > (dailyBudgetPace * Double(pt.day)) && monthlyBudget > 0 ? Color.orange : Color.blue).opacity(0.25),
-                                    Color.clear
-                                ],
+                                colors: [lineColor.opacity(0.30), lineColor.opacity(0.02)],
                                 startPoint: .top,
                                 endPoint: .bottom
                             )
                         )
-                        .interpolationMethod(.monotone)
-
+                        .interpolationMethod(.linear)
+                        
                         LineMark(
                             x: .value("Day", pt.day),
-                            y: .value("Spend", pt.amount)
+                            y: .value("Spend", pt.amount),
+                            series: .value("Series", "ActualSpend")
                         )
-                        .lineStyle(StrokeStyle(lineWidth: 2.5))
-                        .foregroundStyle(pt.amount > (dailyBudgetPace * Double(pt.day)) && monthlyBudget > 0 ? Color.orange : Color.blue)
-                        .interpolationMethod(.monotone)
+                        .foregroundStyle(lineColor)
+                        .interpolationMethod(.linear)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                     }
-
-                    // 3. Touch Selection RuleMark
-                    if let selectedDay = selectedTrendDay,
-                       let point = monthlyTrendData.first(where: { $0.day == selectedDay }) {
-                        RuleMark(x: .value("Selected Day", selectedDay))
-                            .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [2, 2]))
-                            .foregroundStyle(Color.primary.opacity(0.6))
-
+                    
+                    // 3. Current Day Endpoint Marker (or Selected Scrub Day Marker)
+                    if let activeDay = selectedTrendDay,
+                       let activePoint = monthlyTrendData.first(where: { $0.day == activeDay }) {
+                        RuleMark(x: .value("Selected Day", activeDay))
+                            .foregroundStyle(lineColor.opacity(0.4))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        
                         PointMark(
-                            x: .value("Selected Day", selectedDay),
-                            y: .value("Spend", point.amount)
+                            x: .value("Day", activePoint.day),
+                            y: .value("Spend", activePoint.amount)
                         )
-                        .symbolSize(45)
-                        .foregroundStyle(Color.blue)
+                        .symbolSize(65)
+                        .foregroundStyle(lineColor)
+                    } else if let latestPoint = monthlyTrendData.last {
+                        PointMark(
+                            x: .value("Day", latestPoint.day),
+                            y: .value("Spend", latestPoint.amount)
+                        )
+                        .symbolSize(50)
+                        .foregroundStyle(lineColor)
+                        .annotation(position: .top, spacing: 4) {
+                            Circle()
+                                .stroke(lineColor.opacity(0.35), lineWidth: 4)
+                                .frame(width: 10, height: 10)
+                        }
                     }
                 }
-                .chartXScale(domain: 1...(Calendar.current.range(of: .day, in: .month, for: Date())?.count ?? 30))
-                .chartYAxis(.hidden)
-                .chartXAxis {
-                    AxisMarks(values: [1, 7, 14, 21, 28]) { val in
-                        AxisGridLine().foregroundStyle(.secondary.opacity(0.15))
-                        AxisTick().foregroundStyle(.secondary.opacity(0.3))
-                        AxisValueLabel {
-                            if let intVal = val.as(Int.self) {
-                                Text("\(intVal)")
-                                    .font(.system(size: 9, weight: .medium))
+                .chartXScale(domain: 1...daysInMonth)
+                .chartYScale(domain: 0...yMax)
+                .chartYAxis {
+                    AxisMarks(position: .trailing, values: [0, monthlyBudget / 2.0, monthlyBudget]) { value in
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5, dash: [2, 3]))
+                            .foregroundStyle(.secondary.opacity(0.2))
+                        if let amount = value.as(Double.self), monthlyBudget > 0 {
+                            AxisValueLabel {
+                                Text(amount >= 1000 ? String(format: "%.0fk", amount / 1000.0) : String(format: "%.0f", amount))
+                                    .font(.system(size: 9))
                                     .foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
-                .chartXSelection(value: $selectedTrendDay)
+                .chartXAxis {
+                    AxisMarks(values: [1, 8, 15, 22, daysInMonth]) { value in
+                        AxisGridLine().foregroundStyle(.secondary.opacity(0.15))
+                        AxisTick().foregroundStyle(.secondary.opacity(0.3))
+                        if let day = value.as(Int.self) {
+                            AxisValueLabel {
+                                Text("\(day)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .chartOverlay { proxy in
+                    GeometryReader { geo in
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        let xPos = value.location.x - geo[proxy.plotAreaFrame].origin.x
+                                        if let day: Int = proxy.value(atX: xPos) {
+                                            let clamped = min(max(1, day), currentDay)
+                                            if selectedTrendDay != clamped {
+                                                selectedTrendDay = clamped
+                                            }
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        selectedTrendDay = nil
+                                    }
+                            )
+                    }
+                }
                 .frame(height: 105)
-                .padding(.top, 4)
+                .padding(.top, 2)
             }
-        
+        }
         .padding(18)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 18))
@@ -889,35 +1090,46 @@ public struct MiniCategorySnapshot: View {
     }
     
     public var body: some View {
-        HStack(spacing: 16) {
-            Chart(data) { item in
-                SectorMark(
-                    angle: .value("Amount", item.total),
-                    innerRadius: .ratio(0.6),
-                    angularInset: 1.5
-                )
-                .foregroundStyle(Color(hex: item.colorHex))
+        if data.isEmpty {
+            HStack {
+                Spacer()
+                Text("No category data yet")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 36)
+                Spacer()
             }
-            .frame(width: 100, height: 100)
-            
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(data) { item in
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color(hex: item.colorHex))
-                            .frame(width: 8, height: 8)
-                        Text(item.name)
-                            .font(.caption)
-                            .lineLimit(1)
-                        Spacer()
-                        Text(String(format: "%@ %.0f", currency, item.total))
-                            .font(.caption.bold())
-                            .lineLimit(1)
+        } else {
+            HStack(spacing: 16) {
+                Chart(data) { item in
+                    SectorMark(
+                        angle: .value("Amount", item.total),
+                        innerRadius: .ratio(0.6),
+                        angularInset: 1.5
+                    )
+                    .foregroundStyle(Color(hex: item.colorHex))
+                }
+                .frame(width: 100, height: 100)
+                
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(data) { item in
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color(hex: item.colorHex))
+                                .frame(width: 8, height: 8)
+                            Text(item.name)
+                                .font(.caption)
+                                .lineLimit(1)
+                            Spacer()
+                            Text(String(format: "%@ %.0f", currency, item.total))
+                                .font(.caption.bold())
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
     }
 }
 
