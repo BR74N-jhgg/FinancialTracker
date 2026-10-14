@@ -3,6 +3,9 @@ import Foundation
 // MARK: - App Localization Helper (English & Traditional Chinese 繁體中文)
 public enum L10n {
     private static let zhHantDict: [String: String] = [
+        "Worthly": "Worthly",
+        "Financial Tracker": "Worthly",
+        "App Name": "應用程式名稱",
         "Net Worth": "淨資產",
         "Assets": "資產",
         "Liabilities": "負債",
@@ -42,10 +45,14 @@ public enum L10n {
         "Budget": "預算",
         "remaining": "剩餘",
         "Featured Analytics": "重點分析",
+        "Financial Breakdown": "財務分析",
         "View Full Analytics": "查看完整分析",
         "Quick Actions": "快速記帳",
         "Customize": "自訂",
         "Recent Activity": "近期交易",
+        "Recent Transactions": "近期交易",
+        "No transactions recorded yet.": "暫無交易記錄",
+        "No expenses logged this month": "本月暫無支出記錄",
         "See All": "查看全部",
         "No Transactions Yet": "暫無交易記錄",
         "Spending by Day of Week": "每週消費分佈",
@@ -118,9 +125,12 @@ public enum L10n {
         "Setup Guide": "設定指南",
         "Open Shortcuts App": "開啟「捷徑」App",
         "New Automation": "新增個人自動化操作",
-        "Select Cards": "選擇卡片或八達通",
+        "Select Cards": "選擇所有卡片及八達通",
+        "Select all your Apple Pay credit/debit cards and Express Transit cards (Octopus / Suica).": "勾選所有 Apple Pay 信用卡、扣帳卡及快速交通卡（八達通 / Suica）。",
         "Run Automatically": "設定為「立即執行」",
-        "Add Financial Tracker Action": "加入 Financial Tracker 記帳動作",
+        "Add Worthly Action": "加入 Worthly 自動記帳動作",
+        "Add Financial Tracker Action": "加入 Worthly 自動記帳動作",
+        "Select 'Auto-Log Wallet / Travel Card Payment' and map Amount, Merchant, and Card or Pass from Shortcut Input.": "選擇「Auto-Log Wallet / Travel Card Payment」，並將金額（Amount）、商戶（Merchant）及卡片（Card or Pass）連結至「捷徑輸入」。",
         "Apple Pay Setup": "Apple Pay 捷徑設定",
         "Shortcut Title": "捷徑名稱",
         "Icon & Color": "圖標與顏色",
@@ -131,7 +141,9 @@ public enum L10n {
         "New Shortcut": "新增捷徑",
         "Reset Defaults": "重設預設捷徑",
         "Customize Quick Actions": "自訂快速記帳捷徑",
-        "Across 7 weekdays": "過去 7 天統計"
+        "Across 7 weekdays": "過去 7 天統計",
+        "Private • Fast • On-Device": "私密 • 極速 • 本機儲存",
+        "Loading your finances...": "正在載入你的財務數據..."
     ]
     
     public static func tr(_ key: String, lang: String = "en") -> String {

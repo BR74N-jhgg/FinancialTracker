@@ -1,6 +1,6 @@
 /*
  SettingsView.swift
- FinancialTracker
+ Worthly
 */
 
 import SwiftUI
@@ -52,9 +52,6 @@ public struct SettingsView: View {
                 organizationSection
                 shortcutsSection
                 dataSection
-                //             #if DEBUG
-                //           developerSection
-                //             #endif
                 aboutSection
             }
             .navigationTitle(L10n.tr("Settings", lang: appLanguage))
@@ -251,6 +248,7 @@ public struct SettingsView: View {
                 Spacer()
                 Text("\(transactions.count)")
                     .foregroundStyle(.secondary)
+                    .font(.subheadline)
                     .lineLimit(1)
             }
             
@@ -263,29 +261,20 @@ public struct SettingsView: View {
         }
     }
     
-    /*    @ViewBuilder
-     private var developerSection: some View {
-     Section(L10n.tr("Developer & Diagnostics", lang: appLanguage)) {
-     NavigationLink {
-     StressTestView()
-     } label: {
-     HStack {
-     Label(L10n.tr("All-Parameter Stress Test", lang: appLanguage), systemImage: "bolt.badge.clock.fill")
-     .lineLimit(1)
-     Spacer()
-     }
-     }
-     }
-     }
-     */
-    
     @ViewBuilder
     private var aboutSection: some View {
         Section(L10n.tr("About", lang: appLanguage)) {
             HStack {
+                Text(L10n.tr("App Name", lang: appLanguage)).lineLimit(1)
+                Spacer()
+                Text("Worthly")
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            HStack {
                 Text(L10n.tr("Version", lang: appLanguage)).lineLimit(1)
                 Spacer()
-                let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+                let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1"
                 let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
                 Text("\(appVersion) (\(buildNumber))")
                     .foregroundStyle(.secondary)
@@ -350,13 +339,13 @@ public struct SettingsView: View {
                                 description: L10n.tr("Tap '+' and search for the 'Transaction' trigger.", lang: appLanguage))
                         StepRow(number: "3",
                                 title: L10n.tr("Select Cards", lang: appLanguage),
-                                description: L10n.tr("Choose any card or select your default Apple Pay card.", lang: appLanguage))
+                                description: L10n.tr("Select all your Apple Pay credit/debit cards and Express Transit cards (Octopus / Suica).", lang: appLanguage))
                         StepRow(number: "4",
                                 title: L10n.tr("Run Automatically", lang: appLanguage),
                                 description: L10n.tr("Set trigger to 'Run Immediately' without confirmation.", lang: appLanguage))
                         StepRow(number: "5",
-                                title: L10n.tr("Add Financial Tracker Action", lang: appLanguage),
-                                description: L10n.tr("Select 'Log Expense' with Transaction Amount & Merchant.", lang: appLanguage))
+                                title: L10n.tr("Add Worthly Action", lang: appLanguage),
+                                description: L10n.tr("Select 'Auto-Log Wallet / Travel Card Payment' and map Amount, Merchant, and Card or Pass from Shortcut Input.", lang: appLanguage))
                     }
                 }
                 .navigationTitle(L10n.tr("Apple Pay Setup", lang: appLanguage))

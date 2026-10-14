@@ -1,6 +1,6 @@
 //
 //  LoadingScreenView.swift
-//  FinancialTracker
+//  Worthly
 //
 
 import SwiftUI
@@ -60,8 +60,8 @@ public struct LoadingScreenView: View {
                 
                 // Title and Subtitle
                 VStack(spacing: 8) {
-                    Text(L10n.tr("Financial Tracker", lang: appLanguage))
-                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                    Text(L10n.tr("Worthly", lang: appLanguage))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     
