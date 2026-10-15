@@ -140,6 +140,7 @@ public struct DashboardView: View {
     
     @Query(sort: \TransactionItem.timestamp, order: .reverse) private var transactions: [TransactionItem]
     @Query(sort: \PaymentMethodItem.name) private var allAccounts: [PaymentMethodItem]
+    @Query(sort: \CategoryItem.name) private var allCategories: [CategoryItem]
     
     @AppStorage("monthly_budget") private var monthlyBudget: Double = 15000.0
     @AppStorage("default_currency") private var defaultCurrency: String = "HKD"
@@ -444,11 +445,58 @@ public struct DashboardView: View {
     }
     
     private func recomputeMetrics(forceSyncWidget: Bool = false) {
+        repairAutoLoggedTransactionsIfNeeded()
         let key = dashboardCalculationKey
         let snapshot = buildMetricsSnapshot(forKey: key)
         cachedSnapshot = snapshot
         if forceSyncWidget {
             WidgetSyncManager.shared.syncWidget(context: modelContext)
+        }
+    }
+
+    private func repairAutoLoggedTransactionsIfNeeded() {
+        guard !transactions.isEmpty else { return }
+        let transportCat = allCategories.first(where: { $0.name.localizedCaseInsensitiveContains("Transport") })
+        let groceriesCat = allCategories.first(where: { $0.name.localizedCaseInsensitiveContains("Groceries") || $0.name.localizedCaseInsensitiveContains("Shopping") })
+        let octopusMethod = allAccounts.first(where: { $0.name.localizedCaseInsensitiveContains("Octopus") || $0.name.localizedCaseInsensitiveContains("八達通") })
+
+        var didChange = false
+        for item in transactions where item.type == .expense {
+            let catName = item.category?.name ?? "Other"
+            let merchLower = item.merchant.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+            // Repair auto-logged rows that previously fell into "Other"
+            if catName == "Other" || item.category == nil {
+                if merchLower.isEmpty || merchLower == "wallet purchase" || merchLower.contains("octopus") || merchLower.contains("mtr") || merchLower.contains("kmb") {
+                    if let tCat = transportCat {
+                        item.category = tCat
+                        didChange = true
+                    }
+                    if let oct = octopusMethod, item.paymentMethod?.name != oct.name {
+                        item.paymentMethod = oct
+                        didChange = true
+                    }
+                } else if merchLower.contains("lung fung") || merchLower.contains("龍豐") {
+                    if let gCat = groceriesCat {
+                        item.category = gCat
+                        didChange = true
+                    }
+                    if let oct = octopusMethod, item.paymentMethod?.name != oct.name {
+                        item.paymentMethod = oct
+                        didChange = true
+                    }
+                } else if merchLower.contains("ichicake") || merchLower.contains("bindo*") || merchLower.contains("kpay*") || merchLower.contains("bodybuilding") {
+                    if let gCat = groceriesCat {
+                        item.category = gCat
+                        didChange = true
+                    }
+                }
+            }
+        }
+
+        if didChange {
+            try? modelContext.save()
+            AccountBalanceManager.shared.recalculateBalances(context: modelContext)
         }
     }
 
@@ -972,18 +1020,19 @@ public struct DashboardView: View {
                                 let iconColor = item.type == .transfer ? Color.orange : Color(hex: item.category?.colorHex ?? "#007AFF")
                                 
                                 Image(systemName: icon)
-                                    .font(.body)
-                                    .foregroundStyle(iconColor)
-                                    .frame(width: 36, height: 36)
-                                    .background(iconColor.opacity(0.12))
+                                    .font(.headline)
+                                    .foregroundStyle(.white)
+                                    .frame(width: 38, height: 38)
+                                    .background(iconColor)
                                     .clipShape(Circle())
                                 
-                                VStack(alignment: .leading, spacing: 2) {
+                                VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 6) {
                                         Text(item.merchant.isEmpty ? (item.category?.name ?? "Other") : item.merchant)
                                             .font(.body.weight(.medium))
                                             .foregroundStyle(.primary)
                                             .lineLimit(1)
+                                            .truncationMode(.tail)
                                         
                                         if item.isExcludedFromBudget {
                                             Text(L10n.tr("Reimbursable", lang: appLanguage))
@@ -996,13 +1045,12 @@ public struct DashboardView: View {
                                         }
                                     }
                                     
-                                    HStack(spacing: 4) {
-                                        Text(item.timestamp.formatted(date: .abbreviated, time: .omitted))
-                                        if let method = item.paymentMethod {
-                                            Text("• \(method.name)")
-                                        }
+                                    HStack(spacing: 5) {
+                                        Image(systemName: item.paymentMethod?.iconName ?? "creditcard")
+                                        Text(item.timestamp, format: .dateTime.month(.abbreviated).day().hour().minute())
+                                            .lineLimit(1)
                                     }
-                                    .font(.caption2)
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                 }

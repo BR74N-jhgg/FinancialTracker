@@ -66,17 +66,37 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         let context = container.mainContext
 
         let currency = UserDefaults.standard.string(forKey: "default_currency") ?? "HKD"
-        let resolvedPaymentMethod = resolvePaymentMethod(cardOrPass: cardOrPassName, merchantHint: merchant, in: context)
-        let effectiveCardName = cardOrPassName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-            ? cardOrPassName
-            : resolvedPaymentMethod?.name
+
+        // 1. Resolve Payment Method first:
+        //    - When Octopus is tapped, Apple Wallet does NOT pass a Merchant or Card string once Amount is prompted.
+        //    - By contrast, Apple Pay credit/debit cards ALWAYS pass Merchant and Card or Pass.
+        //    - Therefore, if both Merchant and Card or Pass are empty, route directly to Octopus!
+        let resolvedPaymentMethod = resolvePaymentMethod(
+            cardOrPass: cardOrPassName,
+            merchantHint: merchant,
+            amountHint: positiveAmount,
+            in: context
+        )
+
+        let effectiveCardName: String? = {
+            if let rawCard = cardOrPassName?.trimmingCharacters(in: .whitespacesAndNewlines), !rawCard.isEmpty {
+                return rawCard
+            }
+            return resolvedPaymentMethod?.name
+        }()
+
+        // 2. Resolve & Clean Merchant Name
         let resolvedMerchant = resolveMerchantName(from: merchant, cardName: effectiveCardName)
+
+        // 3. Resolve Category (never fall back to gray 'Other' when we know it's Octopus transit or retail/groceries)
         let resolvedCategory = resolveCategory(
             for: resolvedMerchant,
+            rawMerchant: merchant,
             cardName: effectiveCardName,
             explicitCategory: categoryName,
             in: context
         )
+
         let finalNotes = resolveNotes(merchant: resolvedMerchant, paymentMethod: resolvedPaymentMethod)
 
         let transaction = TransactionItem(
@@ -98,34 +118,42 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         AccountBalanceManager.shared.recalculateBalances(context: context)
         WidgetSyncManager.shared.syncWidget(context: context)
 
-        let methodName = resolvedPaymentMethod?.name ?? "Wallet"
+        let methodName = resolvedPaymentMethod?.name ?? "Octopus"
         let summary = String(
             format: "Logged %@ %.2f at %@ (%@) via %@",
             currency,
             positiveAmount,
             resolvedMerchant,
-            resolvedCategory?.name ?? "Other",
+            resolvedCategory?.name ?? "Transport",
             methodName
         )
         return .result(value: summary)
     }
 
-    // MARK: - Smart Merchant Normalization
-    private func resolveMerchantName(from rawMerchant: String?, cardName: String?) -> String {
-        let clean = rawMerchant?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if clean.isEmpty {
-            if let card = cardName?.trimmingCharacters(in: .whitespacesAndNewlines), !card.isEmpty {
-                let lowerCard = card.lowercased()
-                if lowerCard.contains("octopus") || lowerCard.contains("八達通") {
-                    return "Octopus Transit"
-                } else if lowerCard.contains("suica") || lowerCard.contains("pasmo") || lowerCard.contains("icoca") {
-                    return "Japan Transit"
-                }
+    // MARK: - Smart Merchant Normalization & POS Prefix Cleaner
+    private func stripPOSPrefixes(_ raw: String) -> String {
+        var result = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Strip common HK POS gateway prefixes like "Bindo*", "KPay*", "EftPay*", "QF*", "SQ*", "SP*"
+        let prefixes = ["bindo*", "kpay*", "eftpay*", "shopy*", "qf*", "sq *", "sq*", "sp *", "sp*", "paypal *", "paypal*"]
+        let lower = result.lowercased()
+        for prefix in prefixes {
+            if lower.hasPrefix(prefix) {
+                result = String(result.dropFirst(prefix.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+                break
             }
+        }
+        return result
+    }
+
+    private func resolveMerchantName(from rawMerchant: String?, cardName: String?) -> String {
+        let rawClean = rawMerchant?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if rawClean.isEmpty || rawClean.lowercased() == "wallet purchase" {
             return "Wallet Purchase"
         }
 
-        let lower = clean.lowercased()
+        let cleaned = stripPOSPrefixes(rawClean)
+        let lower = cleaned.lowercased()
+
         if lower.contains("mtr") || lower.contains("港鐵") {
             return "MTR"
         } else if lower.contains("kmb") || lower.contains("九巴") {
@@ -148,6 +176,8 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return "Mannings"
         } else if lower.contains("watsons") || lower.contains("屈臣氏") {
             return "Watsons"
+        } else if lower.contains("lung fung") || lower.contains("龍豐") {
+            return "Lung Fung Mall"
         } else if lower.contains("don don donki") || lower.contains("donki") {
             return "Don Don Donki"
         } else if lower.contains("clp") || lower.contains("中電") {
@@ -156,7 +186,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return "Towngas"
         }
 
-        return clean
+        return rawClean
     }
 
     private func resolveNotes(merchant: String, paymentMethod: PaymentMethodItem?) -> String {
@@ -173,6 +203,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
     @MainActor
     private func resolveCategory(
         for merchant: String,
+        rawMerchant: String?,
         cardName: String?,
         explicitCategory: String?,
         in context: ModelContext
@@ -186,7 +217,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             }
         }
 
-        let inferredName = inferCategoryName(for: merchant, cardName: cardName)
+        let inferredName = inferCategoryName(for: merchant, rawMerchant: rawMerchant, cardName: cardName)
 
         if let matched = existingCategories.first(where: {
             $0.name.localizedCaseInsensitiveCompare(inferredName) == .orderedSame ||
@@ -195,10 +226,10 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return matched
         }
 
-        if let otherCategory = existingCategories.first(where: {
-            $0.name.localizedCaseInsensitiveContains("Other") || $0.name.localizedCaseInsensitiveContains("其他")
-        }) {
-            return otherCategory
+        // If "Groceries" was inferred, also check "Shopping" if Groceries doesn't exist
+        if inferredName == "Groceries",
+           let shoppingCat = existingCategories.first(where: { $0.name.localizedCaseInsensitiveContains("Shopping") }) {
+            return shoppingCat
         }
 
         let newCategory = CategoryItem(
@@ -210,9 +241,16 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         return newCategory
     }
 
-    private func inferCategoryName(for merchant: String, cardName: String?) -> String {
+    private func inferCategoryName(for merchant: String, rawMerchant: String?, cardName: String?) -> String {
         let cleanMerch = merchant.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let rawLower = (rawMerchant ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let combinedMerch = "\(cleanMerch) \(rawLower)"
         let cleanCard = (cardName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+
+        // 1. Blank merchant ("Wallet Purchase") or explicit transit keywords -> Transport (Blue Train icon)
+        if cleanMerch.isEmpty || cleanMerch == "wallet purchase" {
+            return "Transport"
+        }
 
         let transportMerchants = [
             "mtr", "kmb", "citybus", "nwfb", "star ferry", "taxi", "uber", "tunnel", "hketoll",
@@ -220,33 +258,36 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             "octopus", "suica", "pasmo", "icoca", "transit",
             "港鐵", "九巴", "城巴", "新巴", "天星小輪", "的士", "電車", "輕鐵", "小巴", "八達通"
         ]
-        for t in transportMerchants where cleanMerch.contains(t) {
+        for t in transportMerchants where combinedMerch.contains(t) {
             return "Transport"
+        }
+
+        // 2. Groceries / Retail / Mall / Bakery / Supplements (Green Cart icon `cart.fill` matching user's preferred layout)
+        let groceryAndRetailMerchants = [
+            "wellcome", "parknshop", "fusion", "marketplace", "city'super", "donki", "don don donki",
+            "aeon", "yata", "759", "7-eleven", "circle k", "lung fung", "龍豐",
+            "ichicake", "cake", "bake", "bodybuilding", "kpay*", "bindo*", "mall", "mart", "store",
+            "mannings", "watsons", "惠康", "百佳", "一田", "阿信屋", "便利店", "超市", "萬寧", "屈臣氏"
+        ]
+        for g in groceryAndRetailMerchants where combinedMerch.contains(g) {
+            return "Groceries"
         }
 
         let diningMerchants = [
             "starbucks", "mcdonald", "kfc", "pacific coffee", "fairwood", "cafe de coral", "maxim", "sushiro",
             "genki", "tamjai", "samgor", "pizza hut", "subway", "bakehouse", "shake shack", "cha chaan teng",
-            "canteen", "coffee", "cafe", "restaurant", "bakery",
+            "canteen", "coffee", "cafe", "restaurant",
             "大快活", "大家樂", "美心", "壽司郎", "元氣", "譚仔", "三哥", "茶餐廳", "酒樓", "餐廳"
         ]
-        for d in diningMerchants where cleanMerch.contains(d) {
+        for d in diningMerchants where combinedMerch.contains(d) {
             return "Dining"
-        }
-
-        let groceryMerchants = [
-            "wellcome", "parknshop", "fusion", "marketplace", "city'super", "donki", "don don donki", "aeon", "yata", "759", "7-eleven", "circle k",
-            "惠康", "百佳", "一田", "阿信屋", "便利店", "超市"
-        ]
-        for g in groceryMerchants where cleanMerch.contains(g) {
-            return "Groceries"
         }
 
         let utilityMerchants = [
             "clp", "towngas", "hkelectric", "autotoll", "water supplies", "hkbn", "pccw", "smartone", "csl", "3hk", "cmhk", "broadband",
             "中電", "港燈", "煤氣", "水費", "香港寬頻", "電訊盈科"
         ]
-        for u in utilityMerchants where cleanMerch.contains(u) {
+        for u in utilityMerchants where combinedMerch.contains(u) {
             return "Bills & Utilities"
         }
 
@@ -254,31 +295,32 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             "netflix", "spotify", "apple.com/bill", "itunes", "icloud", "youtube", "disney",
             "broadway", "mcl", "golden harvest", "cinema", "steam", "playstation", "nintendo"
         ]
-        for e in entertainmentMerchants where cleanMerch.contains(e) {
+        for e in entertainmentMerchants where combinedMerch.contains(e) {
             return "Entertainment"
         }
 
         let healthMerchants = [
-            "mannings", "watsons", "panadol", "clinic", "hospital", "dental", "pharmacy", "gym", "fitness",
-            "萬寧", "屈臣氏", "診所", "醫院", "藥房"
+            "panadol", "clinic", "hospital", "dental", "pharmacy", "gym", "fitness",
+            "診所", "醫院", "藥房"
         ]
-        for h in healthMerchants where cleanMerch.contains(h) {
+        for h in healthMerchants where combinedMerch.contains(h) {
             return "Health & Fitness"
         }
 
         let shoppingMerchants = [
             "log-on", "誠品", "eslite", "apple store", "nike", "adidas", "lululemon", "taobao", "淘寶", "amazon", "uniqlo", "zara", "muji"
         ]
-        for s in shoppingMerchants where cleanMerch.contains(s) {
+        for s in shoppingMerchants where combinedMerch.contains(s) {
             return "Shopping"
         }
 
-        // If merchant had no match (e.g. "Wallet Purchase") but the card itself is Octopus/Suica transit card, default to Transport
-        if cleanCard.contains("octopus") || cleanCard.contains("八達通") || cleanCard.contains("suica") || cleanCard.contains("pasmo") || cleanCard.contains("icoca") {
+        // If paid with Octopus and no merchant matched, default to Transport
+        if cleanCard.contains("octopus") || cleanCard.contains("八達通") || cleanCard.contains("suica") {
             return "Transport"
         }
 
-        return "Other"
+        // Default any other named retail merchant to Groceries (green cart) rather than gray "Other"
+        return "Groceries"
     }
 
     private func iconForCategory(_ name: String) -> String {
@@ -290,7 +332,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         case "Entertainment": return "tv.fill"
         case "Health & Fitness": return "heart.fill"
         case "Shopping": return "bag.fill"
-        default: return "ellipsis.circle.fill"
+        default: return "cart.fill"
         }
     }
 
@@ -303,33 +345,91 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         case "Entertainment": return "#FF2D55"
         case "Health & Fitness": return "#FF3B30"
         case "Shopping": return "#AF52DE"
-        default: return "#8E8E93"
+        default: return "#34C759"
         }
     }
 
-    // MARK: - Smart Payment Method Resolver
+    // MARK: - Smart Payment Method Resolver (With Fuzzy Token Deduping & Octopus Detection)
     @MainActor
-    private func resolvePaymentMethod(cardOrPass: String?, merchantHint: String?, in context: ModelContext) -> PaymentMethodItem? {
+    private func resolvePaymentMethod(
+        cardOrPass: String?,
+        merchantHint: String?,
+        amountHint: Double,
+        in context: ModelContext
+    ) -> PaymentMethodItem? {
         let descriptor = FetchDescriptor<PaymentMethodItem>()
         let existingMethods = (try? context.fetch(descriptor)) ?? []
 
-        // 1. Direct match on Card/Pass name passed by Wallet
-        if let card = cardOrPass?.trimmingCharacters(in: .whitespacesAndNewlines), !card.isEmpty {
+        let rawMerch = merchantHint?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let rawCard = cardOrPass?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        // 1. When Octopus is tapped (or a transit / Lung Fung Mall Octopus purchase occurs):
+        //    - On iOS, offline FeliCa Octopus taps do NOT pass a Merchant string ("Wallet Purchase" / empty)
+        //      and leave Card or Pass empty after prompting for Amount.
+        //    - Also check if merchant is Lung Fung Mall or transit (MTR/KMB/Citybus/Octopus).
+        let lowerMerch = rawMerch.lowercased()
+        let isBlankMerchantOctopusTap = (rawMerch.isEmpty || lowerMerch == "wallet purchase") && rawCard.isEmpty
+        let isExplicitOctopusMerchant = lowerMerch.contains("mtr") || lowerMerch.contains("kmb") ||
+                                        lowerMerch.contains("citybus") || lowerMerch.contains("octopus") ||
+                                        lowerMerch.contains("lung fung") || lowerMerch.contains("龍豐") ||
+                                        lowerMerch.contains("港鐵") || lowerMerch.contains("九巴") || lowerMerch.contains("八達通")
+
+        if isBlankMerchantOctopusTap || isExplicitOctopusMerchant {
+            if let octopusAccount = existingMethods.first(where: {
+                $0.name.localizedCaseInsensitiveContains("Octopus") || $0.name.localizedCaseInsensitiveContains("八達通")
+            }) {
+                return octopusAccount
+            }
+            let newOctopus = PaymentMethodItem(
+                name: "Octopus",
+                iconName: "wave.3.forward.circle.fill",
+                colorHex: "#FF9500",
+                accountType: .asset,
+                initialBalance: 0.0
+            )
+            context.insert(newOctopus)
+            return newOctopus
+        }
+
+        // 2. If Card or Pass was provided by Apple Wallet (e.g. "Hang Seng CUHK Credit Card"):
+        if !rawCard.isEmpty {
+            // 2a. Exact or substring match
             if let directMatch = existingMethods.first(where: {
-                $0.name.localizedCaseInsensitiveCompare(card) == .orderedSame ||
-                $0.name.localizedCaseInsensitiveContains(card) ||
-                card.localizedCaseInsensitiveContains($0.name)
+                $0.name.localizedCaseInsensitiveCompare(rawCard) == .orderedSame ||
+                $0.name.localizedCaseInsensitiveContains(rawCard) ||
+                rawCard.localizedCaseInsensitiveContains($0.name)
             }) {
                 return directMatch
             }
 
-            let lowerCard = card.lowercased()
+            // 2b. Fuzzy keyword match (e.g. "Hang Seng CUHK" matches existing "CUHK Credit Card" via shared "cuhk" token)
+            let stopWords: Set<String> = ["card", "credit", "debit", "bank", "the", "of", "hk", "visa", "mastercard", "pay", "apple", "wallet"]
+            let incomingTokens = Set(
+                rawCard.lowercased()
+                    .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                    .filter { $0.count >= 3 && !stopWords.contains($0) }
+            )
+
+            if !incomingTokens.isEmpty {
+                if let tokenMatch = existingMethods.first(where: { method in
+                    let methodTokens = Set(
+                        method.name.lowercased()
+                            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+                            .filter { $0.count >= 3 && !stopWords.contains($0) }
+                    )
+                    return !incomingTokens.isDisjoint(with: methodTokens)
+                }) {
+                    return tokenMatch
+                }
+            }
+
+            let lowerCard = rawCard.lowercased()
             let isTransit = lowerCard.contains("octopus") || lowerCard.contains("八達通") ||
                             lowerCard.contains("suica") || lowerCard.contains("pasmo") ||
                             lowerCard.contains("icoca") || lowerCard.contains("transit")
 
             let newMethod = PaymentMethodItem(
-                name: card,
+                name: rawCard,
                 iconName: isTransit ? "wave.3.forward.circle.fill" : "creditcard.fill",
                 colorHex: isTransit ? "#FF9500" : "#007AFF",
                 accountType: isTransit ? .asset : .liability,
@@ -337,16 +437,6 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             )
             context.insert(newMethod)
             return newMethod
-        }
-
-        // 2. If Card or Pass wasn't provided, check if merchant is a transit gate (MTR, KMB, Citybus, Octopus) -> match Octopus!
-        if let merch = merchantHint?.lowercased(),
-           (merch.contains("mtr") || merch.contains("kmb") || merch.contains("citybus") || merch.contains("octopus") || merch.contains("港鐵") || merch.contains("九巴") || merch.contains("八達通")) {
-            if let octopusMatch = existingMethods.first(where: {
-                $0.name.localizedCaseInsensitiveContains("Octopus") || $0.name.localizedCaseInsensitiveContains("八達通")
-            }) {
-                return octopusMatch
-            }
         }
 
         // 3. Fallback to user's Default Payment Method in Settings
