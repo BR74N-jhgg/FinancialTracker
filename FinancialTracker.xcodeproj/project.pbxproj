@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		DBA0E574306FE2F8002F5483 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBC3CF32306E3874005A985E /* WidgetKit.framework */; };
-		DBA0E575306FE2F8002F5483 /* WidgetKit.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = DBC3CF32306E3874005A985E /* WidgetKit.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DBA0E577306FE2FA002F5483 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DBC3CF34306E3874005A985E /* SwiftUI.framework */; };
 		DBC3CF44306E3876005A985E /* FinancialTrackerWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = DBC3CF30306E3874005A985E /* FinancialTrackerWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -38,15 +37,6 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		DBA0E576306FE2F8002F5483 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			dstPath = "";
-			dstSubfolder = Frameworks;
-			files = (
-				DBA0E575306FE2F8002F5483 /* WidgetKit.framework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-		};
 		DBC3CF45306E3876005A985E /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			dstPath = "";
@@ -255,7 +245,6 @@
 				DBC3CF2C306E3874005A985E /* Sources */,
 				DBC3CF2D306E3874005A985E /* Frameworks */,
 				DBC3CF2E306E3874005A985E /* Resources */,
-				DBA0E576306FE2F8002F5483 /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -510,7 +499,7 @@
 				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_ENTITLEMENTS = FinancialTracker/FinancialTracker.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = A52CZTY2C9;
 				ENABLE_PREVIEWS = YES;
@@ -553,7 +542,7 @@
 				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_ENTITLEMENTS = FinancialTracker/FinancialTracker.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 4;
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = A52CZTY2C9;
 				ENABLE_PREVIEWS = YES;
@@ -679,7 +668,7 @@
 				CODE_SIGN_ENTITLEMENTS = FinancialTrackerWidgetsExtension.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = A52CZTY2C9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FinancialTrackerWidgets/Info.plist;
@@ -712,7 +701,7 @@
 				CODE_SIGN_ENTITLEMENTS = FinancialTrackerWidgetsExtension.entitlements;
 				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = A52CZTY2C9;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = FinancialTrackerWidgets/Info.plist;
