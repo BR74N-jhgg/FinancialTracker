@@ -724,13 +724,15 @@ public struct DashboardView: View {
                             x: .value("Day", latestPoint.day),
                             y: .value("Spend", latestPoint.amount)
                         )
-                        .symbolSize(50)
+                        .symbolSize(150)
+                        .foregroundStyle(lineColor.opacity(0.22))
+                        
+                        PointMark(
+                            x: .value("Day", latestPoint.day),
+                            y: .value("Spend", latestPoint.amount)
+                        )
+                        .symbolSize(45)
                         .foregroundStyle(lineColor)
-                        .annotation(position: .top, spacing: 4) {
-                            Circle()
-                                .stroke(lineColor.opacity(0.35), lineWidth: 4)
-                                .frame(width: 10, height: 10)
-                        }
                     }
                 }
                 .chartXScale(domain: 1...daysInMonth)
@@ -769,7 +771,8 @@ public struct DashboardView: View {
                             .gesture(
                                 DragGesture(minimumDistance: 0)
                                     .onChanged { value in
-                                        let xPos = value.location.x - geo[proxy.plotAreaFrame].origin.x
+                                        let plotOriginX = proxy.plotFrame.map { geo[$0].origin.x } ?? 0
+                                        let xPos = value.location.x - plotOriginX
                                         if let day: Int = proxy.value(atX: xPos) {
                                             let clamped = min(max(1, day), currentDay)
                                             if selectedTrendDay != clamped {

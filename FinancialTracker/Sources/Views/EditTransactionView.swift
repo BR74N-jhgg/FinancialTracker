@@ -13,9 +13,9 @@ public struct EditTransactionView: View {
     
     @State private var amountString: String
     @State private var merchant: String
-    @State private var selectedCategory: CategoryItem?
-    @State private var selectedPaymentMethod: PaymentMethodItem?
-    @State private var toPaymentMethod: PaymentMethodItem?
+    @State private var selectedCategoryId: UUID?
+    @State private var selectedPaymentMethodId: UUID?
+    @State private var toPaymentMethodId: UUID?
     @State private var type: TransactionType
     @State private var date: Date
     @State private var notes: String
@@ -28,9 +28,9 @@ public struct EditTransactionView: View {
         self.item = item
         _amountString = State(initialValue: String(format: "%.2f", item.amount))
         _merchant = State(initialValue: item.merchant)
-        _selectedCategory = State(initialValue: item.category)
-        _selectedPaymentMethod = State(initialValue: item.paymentMethod)
-        _toPaymentMethod = State(initialValue: item.toPaymentMethod)
+        _selectedCategoryId = State(initialValue: item.category?.id)
+        _selectedPaymentMethodId = State(initialValue: item.paymentMethod?.id)
+        _toPaymentMethodId = State(initialValue: item.toPaymentMethod?.id)
         _type = State(initialValue: item.type)
         _date = State(initialValue: item.timestamp)
         _notes = State(initialValue: item.notes)
@@ -59,19 +59,19 @@ public struct EditTransactionView: View {
                 
                 if type == .transfer {
                     Section(L10n.tr("Transfer", lang: appLanguage)) {
-                        Picker(L10n.tr("From Account", lang: appLanguage), selection: $selectedPaymentMethod) {
-                            Text("Select Source Account").tag(nil as PaymentMethodItem?)
+                        Picker(L10n.tr("From Account", lang: appLanguage), selection: $selectedPaymentMethodId) {
+                            Text("Select Source Account").tag(nil as UUID?)
                             ForEach(paymentMethods) { method in
                                 Label(method.name, systemImage: method.iconName)
-                                    .tag(method as PaymentMethodItem?)
+                                    .tag(method.id as UUID?)
                             }
                         }
                         
-                        Picker(L10n.tr("To Account", lang: appLanguage), selection: $toPaymentMethod) {
-                            Text("Select Destination Account").tag(nil as PaymentMethodItem?)
-                            ForEach(paymentMethods.filter { $0.id != selectedPaymentMethod?.id }) { method in
+                        Picker(L10n.tr("To Account", lang: appLanguage), selection: $toPaymentMethodId) {
+                            Text("Select Destination Account").tag(nil as UUID?)
+                            ForEach(paymentMethods.filter { $0.id != selectedPaymentMethodId }) { method in
                                 Label(method.name, systemImage: method.iconName)
-                                    .tag(method as PaymentMethodItem?)
+                                    .tag(method.id as UUID?)
                             }
                         }
                         
@@ -82,26 +82,21 @@ public struct EditTransactionView: View {
                         TextField("Merchant (e.g. Keeta, MTR)", text: $merchant)
                             .lineLimit(1)
                         
-                        Picker("Category", selection: $selectedCategory) {
-                            Text("Uncategorized").tag(nil as CategoryItem?)
+                        Picker("Category", selection: $selectedCategoryId) {
+                            Text("Uncategorized").tag(nil as UUID?)
                             ForEach(categories) { cat in
                                 Label(cat.name, systemImage: cat.iconName)
-                                    .tag(cat as CategoryItem?)
+                                    .tag(cat.id as UUID?)
                                     .lineLimit(1)
                             }
                         }
                         
-                        Picker(L10n.tr("Account", lang: appLanguage), selection: $selectedPaymentMethod) {
-                            Text("Unspecified").tag(nil as PaymentMethodItem?)
+                        Picker(L10n.tr("Account", lang: appLanguage), selection: $selectedPaymentMethodId) {
+                            Text("Unspecified").tag(nil as UUID?)
                             ForEach(paymentMethods) { method in
-                                HStack {
-                                    Label(method.name, systemImage: method.iconName)
-                                    Spacer()
-                                    Text(String(format: "%@ %.0f", defaultCurrency, method.currentBalance))
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .tag(method as PaymentMethodItem?)
+                                Label(method.name, systemImage: method.iconName)
+                                    .tag(method.id as UUID?)
+                                    .lineLimit(1)
                             }
                         }
                         
@@ -170,7 +165,7 @@ public struct EditTransactionView: View {
                         saveChanges()
                         dismiss()
                     }
-                    .disabled(Double(amountString) == nil || (Double(amountString) ?? 0) <= 0 || (type == .transfer && (selectedPaymentMethod == nil || toPaymentMethod == nil)))
+                    .disabled(Double(amountString) == nil || (Double(amountString) ?? 0) <= 0 || (type == .transfer && (selectedPaymentMethodId == nil || toPaymentMethodId == nil)))
                     .bold()
                     .lineLimit(1)
                 }
@@ -188,6 +183,15 @@ public struct EditTransactionView: View {
             .sheet(isPresented: $showingPaymentManager) {
                 PaymentMethodManagementView()
             }
+            .onAppear {
+                // Ensure IDs match loaded @Query objects even if name-matched across contexts
+                if selectedCategoryId == nil, let catName = item.category?.name {
+                    selectedCategoryId = categories.first(where: { $0.name == catName })?.id
+                }
+                if selectedPaymentMethodId == nil, let pmName = item.paymentMethod?.name {
+                    selectedPaymentMethodId = paymentMethods.first(where: { $0.name == pmName })?.id
+                }
+            }
         }
     }
     
@@ -201,21 +205,25 @@ public struct EditTransactionView: View {
     
     private func saveChanges() {
         guard let amount = Double(amountString) else { return }
+        let resolvedCategory = categories.first(where: { $0.id == selectedCategoryId })
+        let resolvedPaymentMethod = paymentMethods.first(where: { $0.id == selectedPaymentMethodId })
+        let resolvedToPaymentMethod = paymentMethods.first(where: { $0.id == toPaymentMethodId })
+        
         item.amount = amount
         if type == .transfer {
-            let fromName = selectedPaymentMethod?.name ?? "Account"
-            let toName = toPaymentMethod?.name ?? "Account"
+            let fromName = resolvedPaymentMethod?.name ?? "Account"
+            let toName = resolvedToPaymentMethod?.name ?? "Account"
             item.merchant = "\(fromName) → \(toName)"
             item.category = nil
-            item.toPaymentMethod = toPaymentMethod
+            item.toPaymentMethod = resolvedToPaymentMethod
             item.isExcludedFromBudget = false
         } else {
             item.merchant = merchant.trimmingCharacters(in: .whitespacesAndNewlines)
-            item.category = selectedCategory
+            item.category = resolvedCategory
             item.toPaymentMethod = nil
             item.isExcludedFromBudget = type == .expense ? isExcludedFromBudget : false
         }
-        item.paymentMethod = selectedPaymentMethod
+        item.paymentMethod = resolvedPaymentMethod
         item.type = type
         item.timestamp = date
         item.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)

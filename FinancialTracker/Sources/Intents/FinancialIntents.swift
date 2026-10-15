@@ -11,7 +11,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
 
     @Parameter(
         title: "Amount",
-        description: "Transaction amount passed by the iOS Shortcut Transaction trigger"
+        description: "Transaction amount passed by the Shortcut Transaction trigger"
     )
     public var amount: Double
 
@@ -29,7 +29,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
 
     @Parameter(
         title: "Category",
-        description: "Optional category override. If omitted, Worthly auto-categorizes based on merchant."
+        description: "Optional category override. If omitted, Worthly auto-categorizes based on merchant and card."
     )
     public var categoryName: String?
 
@@ -66,9 +66,17 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         let context = container.mainContext
 
         let currency = UserDefaults.standard.string(forKey: "default_currency") ?? "HKD"
-        let resolvedMerchant = resolveMerchantName(from: merchant, cardName: cardOrPassName)
-        let resolvedCategory = resolveCategory(for: resolvedMerchant, explicitCategory: categoryName, in: context)
-        let resolvedPaymentMethod = resolvePaymentMethod(cardOrPass: cardOrPassName, in: context)
+        let resolvedPaymentMethod = resolvePaymentMethod(cardOrPass: cardOrPassName, merchantHint: merchant, in: context)
+        let effectiveCardName = cardOrPassName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? cardOrPassName
+            : resolvedPaymentMethod?.name
+        let resolvedMerchant = resolveMerchantName(from: merchant, cardName: effectiveCardName)
+        let resolvedCategory = resolveCategory(
+            for: resolvedMerchant,
+            cardName: effectiveCardName,
+            explicitCategory: categoryName,
+            in: context
+        )
         let finalNotes = resolveNotes(merchant: resolvedMerchant, paymentMethod: resolvedPaymentMethod)
 
         let transaction = TransactionItem(
@@ -84,21 +92,19 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         )
 
         context.insert(transaction)
-
-        if let method = resolvedPaymentMethod {
-            method.currentBalance -= positiveAmount
-        }
-
         try? context.save()
 
+        // Recalculate all account balances from initialBalance + deltas so Net Worth stays 100% in sync
+        AccountBalanceManager.shared.recalculateBalances(context: context)
         WidgetSyncManager.shared.syncWidget(context: context)
 
         let methodName = resolvedPaymentMethod?.name ?? "Wallet"
         let summary = String(
-            format: "Logged %@ %.2f at %@ via %@",
+            format: "Logged %@ %.2f at %@ (%@) via %@",
             currency,
             positiveAmount,
             resolvedMerchant,
+            resolvedCategory?.name ?? "Other",
             methodName
         )
         return .result(value: summary)
@@ -111,11 +117,10 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             if let card = cardName?.trimmingCharacters(in: .whitespacesAndNewlines), !card.isEmpty {
                 let lowerCard = card.lowercased()
                 if lowerCard.contains("octopus") || lowerCard.contains("八達通") {
-                    return "Octopus Transit / Retail"
+                    return "Octopus Transit"
                 } else if lowerCard.contains("suica") || lowerCard.contains("pasmo") || lowerCard.contains("icoca") {
-                    return "Japan Transit / Retail"
+                    return "Japan Transit"
                 }
-                return "\(card) Purchase"
             }
             return "Wallet Purchase"
         }
@@ -168,6 +173,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
     @MainActor
     private func resolveCategory(
         for merchant: String,
+        cardName: String?,
         explicitCategory: String?,
         in context: ModelContext
     ) -> CategoryItem? {
@@ -180,7 +186,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             }
         }
 
-        let inferredName = inferCategoryName(for: merchant)
+        let inferredName = inferCategoryName(for: merchant, cardName: cardName)
 
         if let matched = existingCategories.first(where: {
             $0.name.localizedCaseInsensitiveCompare(inferredName) == .orderedSame ||
@@ -204,12 +210,15 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         return newCategory
     }
 
-    private func inferCategoryName(for merchant: String) -> String {
+    private func inferCategoryName(for merchant: String, cardName: String?) -> String {
         let cleanMerch = merchant.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let cleanCard = (cardName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
         let transportMerchants = [
             "mtr", "kmb", "citybus", "nwfb", "star ferry", "taxi", "uber", "tunnel", "hketoll",
-            "tram", "peak tram", "light rail", "green minibus", "red minibus", "港鐵", "九巴", "城巴", "新巴", "天星小輪", "的士", "電車", "輕鐵", "小巴"
+            "tram", "peak tram", "light rail", "green minibus", "red minibus",
+            "octopus", "suica", "pasmo", "icoca", "transit",
+            "港鐵", "九巴", "城巴", "新巴", "天星小輪", "的士", "電車", "輕鐵", "小巴", "八達通"
         ]
         for t in transportMerchants where cleanMerch.contains(t) {
             return "Transport"
@@ -218,6 +227,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         let diningMerchants = [
             "starbucks", "mcdonald", "kfc", "pacific coffee", "fairwood", "cafe de coral", "maxim", "sushiro",
             "genki", "tamjai", "samgor", "pizza hut", "subway", "bakehouse", "shake shack", "cha chaan teng",
+            "canteen", "coffee", "cafe", "restaurant", "bakery",
             "大快活", "大家樂", "美心", "壽司郎", "元氣", "譚仔", "三哥", "茶餐廳", "酒樓", "餐廳"
         ]
         for d in diningMerchants where cleanMerch.contains(d) {
@@ -249,17 +259,23 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         }
 
         let healthMerchants = [
-            "mannings", "watsons", "panadol", "clinic", "hospital", "dental", "pharmacy", "萬寧", "屈臣氏", "診所", "醫院", "藥房"
+            "mannings", "watsons", "panadol", "clinic", "hospital", "dental", "pharmacy", "gym", "fitness",
+            "萬寧", "屈臣氏", "診所", "醫院", "藥房"
         ]
         for h in healthMerchants where cleanMerch.contains(h) {
-            return "Health & Medical"
+            return "Health & Fitness"
         }
 
         let shoppingMerchants = [
-            "log-on", "誠品", "eslite", "apple store", "nike", "adidas", "lululemon", "taobao", "淘寶", "amazon"
+            "log-on", "誠品", "eslite", "apple store", "nike", "adidas", "lululemon", "taobao", "淘寶", "amazon", "uniqlo", "zara", "muji"
         ]
         for s in shoppingMerchants where cleanMerch.contains(s) {
             return "Shopping"
+        }
+
+        // If merchant had no match (e.g. "Wallet Purchase") but the card itself is Octopus/Suica transit card, default to Transport
+        if cleanCard.contains("octopus") || cleanCard.contains("八達通") || cleanCard.contains("suica") || cleanCard.contains("pasmo") || cleanCard.contains("icoca") {
+            return "Transport"
         }
 
         return "Other"
@@ -271,32 +287,33 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         case "Dining": return "fork.knife"
         case "Groceries": return "cart.fill"
         case "Bills & Utilities": return "bolt.fill"
-        case "Entertainment": return "film.fill"
-        case "Health & Medical": return "cross.case.fill"
+        case "Entertainment": return "tv.fill"
+        case "Health & Fitness": return "heart.fill"
         case "Shopping": return "bag.fill"
-        default: return "tag.fill"
+        default: return "ellipsis.circle.fill"
         }
     }
 
     private func colorForCategory(_ name: String) -> String {
         switch name {
-        case "Transport": return "#FF9500"
-        case "Dining": return "#34C759"
-        case "Groceries": return "#AF52DE"
+        case "Transport": return "#007AFF"
+        case "Dining": return "#FF9500"
+        case "Groceries": return "#34C759"
         case "Bills & Utilities": return "#5856D6"
         case "Entertainment": return "#FF2D55"
-        case "Health & Medical": return "#FF3B30"
-        case "Shopping": return "#007AFF"
+        case "Health & Fitness": return "#FF3B30"
+        case "Shopping": return "#AF52DE"
         default: return "#8E8E93"
         }
     }
 
     // MARK: - Smart Payment Method Resolver
     @MainActor
-    private func resolvePaymentMethod(cardOrPass: String?, in context: ModelContext) -> PaymentMethodItem? {
+    private func resolvePaymentMethod(cardOrPass: String?, merchantHint: String?, in context: ModelContext) -> PaymentMethodItem? {
         let descriptor = FetchDescriptor<PaymentMethodItem>()
         let existingMethods = (try? context.fetch(descriptor)) ?? []
 
+        // 1. Direct match on Card/Pass name passed by Wallet
         if let card = cardOrPass?.trimmingCharacters(in: .whitespacesAndNewlines), !card.isEmpty {
             if let directMatch = existingMethods.first(where: {
                 $0.name.localizedCaseInsensitiveCompare(card) == .orderedSame ||
@@ -322,6 +339,17 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return newMethod
         }
 
+        // 2. If Card or Pass wasn't provided, check if merchant is a transit gate (MTR, KMB, Citybus, Octopus) -> match Octopus!
+        if let merch = merchantHint?.lowercased(),
+           (merch.contains("mtr") || merch.contains("kmb") || merch.contains("citybus") || merch.contains("octopus") || merch.contains("港鐵") || merch.contains("九巴") || merch.contains("八達通")) {
+            if let octopusMatch = existingMethods.first(where: {
+                $0.name.localizedCaseInsensitiveContains("Octopus") || $0.name.localizedCaseInsensitiveContains("八達通")
+            }) {
+                return octopusMatch
+            }
+        }
+
+        // 3. Fallback to user's Default Payment Method in Settings
         let defaultName = UserDefaults.standard.string(forKey: "default_payment_method") ?? "Credit Card"
         if let defaultMatch = existingMethods.first(where: {
             $0.name.localizedCaseInsensitiveCompare(defaultName) == .orderedSame ||

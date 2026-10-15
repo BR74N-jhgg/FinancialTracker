@@ -56,20 +56,24 @@ struct FinancialWidgetEntryView : View {
     var entry: FinancialTimelineProvider.Entry
     @Environment(\.widgetFamily) var family
 
+    private var roundedPercentage: Int {
+        Int(((entry.spentThisMonth / max(1, entry.monthlyBudget)) * 100.0).rounded())
+    }
+
     var body: some View {
         switch family {
         case .accessoryCircular:
             Gauge(value: min(1.0, entry.spentThisMonth / max(1, entry.monthlyBudget))) {
                 Image(systemName: "creditcard.fill")
             } currentValueLabel: {
-                Text("\(Int((entry.spentThisMonth / max(1, entry.monthlyBudget)) * 100))%")
+                Text("\(roundedPercentage)%")
                     .font(.system(size: 10, weight: .bold))
             }
             .gaugeStyle(.accessoryCircular)
             
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 2) {
-                Text("Monthly Budget")
+                Text("Worthly Budget")
                     .font(.caption2.bold())
                 Text(String(format: "%@ %.0f left", entry.currency, entry.remainingBudget))
                     .font(.subheadline.bold())
@@ -79,11 +83,11 @@ struct FinancialWidgetEntryView : View {
         default:
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Label("Finance", systemImage: "wallet.pass.fill")
+                    Label("Worthly", systemImage: "wallet.pass.fill")
                         .font(.caption.bold())
                         .foregroundStyle(.blue)
                     Spacer()
-                    Text("\(Int((entry.spentThisMonth / max(1, entry.monthlyBudget)) * 100))%")
+                    Text("\(roundedPercentage)%")
                         .font(.caption2.bold())
                         .foregroundStyle(.secondary)
                 }
@@ -114,7 +118,7 @@ struct FinancialTrackerWidgets: Widget {
             FinancialWidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Budget Tracker")
+        .configurationDisplayName("Worthly Budget")
         .description("Track your monthly budget and expenses at a glance.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular])
     }
