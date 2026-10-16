@@ -20,6 +20,7 @@ public struct AddTransactionView: View {
     @State private var date = Date()
     @State private var notes = ""
     @State private var isExcludedFromBudget = false
+    @State private var recurrence: RecurrenceFrequency = .never
     @State private var showingCategoryManager = false
     @State private var showingPaymentManager = false
     @FocusState private var isFieldFocused: Bool
@@ -146,6 +147,14 @@ public struct AddTransactionView: View {
                     }
                 }
                 
+                Section(appLanguage == "zh-HK" ? "定期重覆記帳" : "Repeating Payment") {
+                    Picker(appLanguage == "zh-HK" ? "週期" : "Repeat", selection: $recurrence) {
+                        ForEach(RecurrenceFrequency.allCases, id: \.self) { freq in
+                            Text(L10n.tr(freq.rawValue, lang: appLanguage)).tag(freq)
+                        }
+                    }
+                }
+                
                 Section("Notes (Optional)") {
                     TextField("Add details...", text: $notes)
                         .focused($isFieldFocused)
@@ -254,6 +263,38 @@ public struct AddTransactionView: View {
             isExcludedFromBudget: type == .expense ? isExcludedFromBudget : false
         )
         modelContext.insert(newItem)
+        
+        if recurrence != .never {
+            let calendar = Calendar.current
+            let nextDue: Date = {
+                switch recurrence {
+                case .weekly:
+                    return calendar.date(byAdding: .weekOfYear, value: 1, to: date) ?? date.addingTimeInterval(7 * 86400)
+                case .monthly:
+                    return calendar.date(byAdding: .month, value: 1, to: date) ?? date.addingTimeInterval(30 * 86400)
+                case .yearly:
+                    return calendar.date(byAdding: .year, value: 1, to: date) ?? date.addingTimeInterval(365 * 86400)
+                case .never:
+                    return date
+                }
+            }()
+            
+            let rule = RecurringRuleItem(
+                title: finalMerchant,
+                amount: amount,
+                currency: defaultCurrency,
+                type: type,
+                recurrenceFrequency: recurrence,
+                nextDueDate: nextDue,
+                lastProcessedDate: date,
+                category: selectedCategory,
+                paymentMethod: selectedPaymentMethod,
+                toPaymentMethod: toPaymentMethod,
+                isExcludedFromBudget: isExcludedFromBudget
+            )
+            modelContext.insert(rule)
+        }
+        
         try? modelContext.save()
         AccountBalanceManager.shared.recalculateBalances(context: modelContext)
         WidgetSyncManager.shared.syncWidget(context: modelContext)

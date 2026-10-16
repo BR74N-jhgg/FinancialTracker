@@ -19,8 +19,9 @@ public final class CategoryItem {
     }
     
     public static let defaultCategories: [(name: String, icon: String, color: String)] = [
-        ("Dining", "fork.knife", "#FF9500"),
+        ("Octopus", "wave.3.forward.circle.fill", "#FF9500"),
         ("Transport", "tram.fill", "#007AFF"),
+        ("Dining", "fork.knife", "#FF9500"),
         ("Groceries", "cart.fill", "#34C759"),
         ("Shopping", "bag.fill", "#AF52DE"),
         ("Bills & Utilities", "bolt.fill", "#5856D6"),

@@ -14,7 +14,8 @@ public final class AppDataStore {
         let schema = Schema([
             TransactionItem.self,
             CategoryItem.self,
-            PaymentMethodItem.self
+            PaymentMethodItem.self,
+            RecurringRuleItem.self
         ])
         
         // 1. Attempt Shared App Group SQLite Container
@@ -46,7 +47,6 @@ public final class WidgetSyncManager {
     
     private init() {}
     
-    /// Synchronizes current month's expenses and budget to shared App Group and reloads widgets
     public func syncWidget(context: ModelContext? = nil) {
         let modelContext = context ?? ModelContext(AppDataStore.sharedModelContainer)
         let descriptor = FetchDescriptor<TransactionItem>()
@@ -81,7 +81,6 @@ public final class AccountBalanceManager {
     public static let shared = AccountBalanceManager()
     private init() {}
     
-    /// Safely recalculates currentBalance for all accounts without crashing on deleted objects
     public func recalculateBalances(context: ModelContext) {
             let accounts = (try? context.fetch(FetchDescriptor<PaymentMethodItem>())) ?? []
             let transactions = (try? context.fetch(FetchDescriptor<TransactionItem>())) ?? []
@@ -187,3 +186,61 @@ public enum AppLanguage: String, CaseIterable, Identifiable {
         }
     }
 
+
+// MARK: - Recurring Payment Engine (Auto-Catch-Up on Launch & Background)
+public final class RecurringPaymentManager {
+    public static let shared = RecurringPaymentManager()
+    private init() {}
+
+    public func processDueRecurringPayments(context: ModelContext) {
+        let descriptor = FetchDescriptor<RecurringRuleItem>()
+        guard let rules = try? context.fetch(descriptor), !rules.isEmpty else { return }
+
+        let now = Date()
+        var didCreate = false
+        let calendar = Calendar.current
+
+        for rule in rules {
+            guard rule.recurrenceFrequency != .never else { continue }
+            var dueDate = rule.nextDueDate
+
+            var count = 0
+            while dueDate <= now && count < 12 {
+                count += 1
+                let tx = TransactionItem(
+                    timestamp: dueDate,
+                    amount: rule.amount,
+                    currency: rule.currency,
+                    merchant: rule.title,
+                    notes: "Recurring (\(rule.recurrenceFrequency.rawValue))",
+                    type: rule.type,
+                    category: rule.category,
+                    paymentMethod: rule.paymentMethod,
+                    toPaymentMethod: rule.toPaymentMethod,
+                    isExcludedFromBudget: rule.isExcludedFromBudget
+                )
+                context.insert(tx)
+                rule.lastProcessedDate = dueDate
+                didCreate = true
+
+                switch rule.recurrenceFrequency {
+                case .weekly:
+                    dueDate = calendar.date(byAdding: .weekOfYear, value: 1, to: dueDate) ?? dueDate.addingTimeInterval(7 * 86400)
+                case .monthly:
+                    dueDate = calendar.date(byAdding: .month, value: 1, to: dueDate) ?? dueDate.addingTimeInterval(30 * 86400)
+                case .yearly:
+                    dueDate = calendar.date(byAdding: .year, value: 1, to: dueDate) ?? dueDate.addingTimeInterval(365 * 86400)
+                case .never:
+                    break
+                }
+            }
+            rule.nextDueDate = dueDate
+        }
+
+        if didCreate {
+            try? context.save()
+            AccountBalanceManager.shared.recalculateBalances(context: context)
+            WidgetSyncManager.shared.syncWidget(context: context)
+        }
+    }
+}
