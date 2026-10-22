@@ -2,28 +2,34 @@ import Foundation
 import AppIntents
 import SwiftData
 
-// MARK: - Zero-Touch Wallet & Travel Card Auto-Logging Intent
+// MARK: - Zero-Touch Wallet, Travel Card & Notification Auto-Logging Intent
 public struct AutoLogWalletPaymentIntent: AppIntent {
     public static var title: LocalizedStringResource = "Auto-Log Wallet & Travel Card"
-    public static var description = IntentDescription("Automatically logs Wallet and Express Transit travel card transactions in the background with smart merchant categorization and card matching.")
+    public static var description = IntentDescription("Automatically logs Wallet, Express Transit, and Notification transactions in the background with smart amount extraction, merchant categorization, and card matching.")
     public static var openAppWhenRun: Bool = false
     public static var isDiscoverable: Bool = true
 
     @Parameter(
         title: "Amount",
-        description: "Transaction amount passed by the Shortcut Transaction trigger (optional for Express Transit)"
+        description: "Transaction amount (leave blank when using Notification trigger to auto-extract from Notification Text)"
     )
     public var amount: Double?
 
     @Parameter(
+        title: "Notification or Raw Text",
+        description: "Pass Notification Body (or Subtitle) from the Notification Automation trigger to automatically extract the exact dynamic Octopus / card amount and merchant"
+    )
+    public var notificationText: String?
+
+    @Parameter(
         title: "Merchant",
-        description: "Merchant name from the transaction (e.g. Starbucks, 7-Eleven, MTR, KMB)"
+        description: "Merchant name from the transaction or Notification Subtitle"
     )
     public var merchant: String?
 
     @Parameter(
         title: "Card or Pass",
-        description: "Pass 'Card or Pass' from the Shortcut Transaction input (e.g. Octopus, HSBC Red Card, Suica, Digital Card)"
+        description: "Pass 'Card or Pass' or Notification Title (e.g. Octopus, CUHK Credit Card)"
     )
     public var cardOrPassName: String?
 
@@ -43,12 +49,14 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
 
     public init(
         amount: Double? = nil,
+        notificationText: String? = nil,
         merchant: String? = nil,
         cardOrPassName: String? = nil,
         categoryName: String? = nil,
         notes: String? = nil
     ) {
         self.amount = amount
+        self.notificationText = notificationText
         self.merchant = merchant
         self.cardOrPassName = cardOrPassName
         self.categoryName = categoryName
@@ -62,19 +70,42 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
 
         let currency = UserDefaults.standard.string(forKey: "default_currency") ?? "HKD"
 
+        // Combine all text fields to extract amount & merchant when triggered by a Notification
+        let combinedNotificationText = [notificationText, merchant, notes, cardOrPassName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " | ")
+
+        let extracted = extractAmountAndMerchant(from: combinedNotificationText, explicitMerchant: merchant)
+
+        // Resolve final positive amount:
+        // 1. Explicit numeric `amount` parameter if provided (> 0)
+        // 2. Dynamic amount parsed from Notification text (e.g. "HK$5.10 at MTR" -> 5.10)
+        let resolvedAmount: Double? = {
+            if let explicitAmt = amount, abs(explicitAmt) > 0 {
+                return abs(explicitAmt)
+            }
+            if let parsedAmt = extracted.amount, parsedAmt > 0 {
+                return parsedAmt
+            }
+            return nil
+        }()
+
+        // If neither numeric amount nor notification amount was found (e.g. MTR $0 entry-gate tap), skip silently
+        guard let positiveAmount = resolvedAmount, positiveAmount > 0 else {
+            return .result(value: "Skipped: No transaction amount detected in tap or notification.")
+        }
+
+        let effectiveRawMerchant = extracted.merchant ?? merchant
+        let rawMerchLower = (effectiveRawMerchant ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let fullTextLower = combinedNotificationText.lowercased()
+
         // 1. Check if this is an Octopus Auto Top-Up (AAVS) or Wallet reload
-        let rawMerchLower = (merchant ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let isAAVSTopUp = rawMerchLower.contains("octopus cards") || rawMerchLower.contains("aavs") ||
                           rawMerchLower.contains("top up") || rawMerchLower.contains("top-up") ||
                           rawMerchLower.contains("自動增值") || rawMerchLower.contains("八達通增值") ||
-                          rawMerchLower.contains("octopus reload")
-
-        let positiveAmount: Double = {
-            if let amt = amount, abs(amt) > 0 {
-                return abs(amt)
-            }
-            return isAAVSTopUp ? 250.00 : 5.00
-        }()
+                          rawMerchLower.contains("octopus reload") ||
+                          fullTextLower.contains("auto add value") || fullTextLower.contains("自動增值")
 
         let allMethods = (try? context.fetch(FetchDescriptor<PaymentMethodItem>())) ?? []
         let octopusAccount = allMethods.first(where: {
@@ -110,8 +141,8 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
 
         // 2. Standard Expense Flow
         let resolvedPaymentMethod = resolvePaymentMethod(
-            cardOrPass: cardOrPassName,
-            merchantHint: merchant,
+            cardOrPass: cardOrPassName ?? notificationText,
+            merchantHint: effectiveRawMerchant,
             in: context
         )
 
@@ -122,11 +153,11 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return resolvedPaymentMethod?.name
         }()
 
-        let resolvedMerchant = resolveMerchantName(from: merchant, cardName: effectiveCardName)
+        let resolvedMerchant = resolveMerchantName(from: effectiveRawMerchant, cardName: effectiveCardName)
 
         let resolvedCategory = resolveCategory(
             for: resolvedMerchant,
-            rawMerchant: merchant,
+            rawMerchant: effectiveRawMerchant,
             cardName: effectiveCardName,
             explicitCategory: categoryName,
             in: context
@@ -149,7 +180,6 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         context.insert(transaction)
         try? context.save()
 
-        // Recalculate all account balances from initialBalance + deltas so Net Worth stays 100% in sync
         RecurringPaymentManager.shared.processDueRecurringPayments(context: context)
         AccountBalanceManager.shared.recalculateBalances(context: context)
         WidgetSyncManager.shared.syncWidget(context: context)
@@ -164,6 +194,69 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             methodName
         )
         return .result(value: summary)
+    }
+
+    // MARK: - Smart Notification Amount & Merchant Parser
+    private func extractAmountAndMerchant(from rawText: String, explicitMerchant: String?) -> (amount: Double?, merchant: String?) {
+        guard !rawText.isEmpty else { return (nil, explicitMerchant) }
+
+        var detectedAmount: Double? = nil
+
+        // Match currency patterns first: e.g. "HK$5.10", "HKD 12.40", "$45.00", "-$5.60", "HK$ 250.00"
+        let currencyPattern = #"(?:HK\$|HKD|US\$|USD|\$|¥|£|€)\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]{1,2})?)"#
+        if let regex = try? NSRegularExpression(pattern: currencyPattern, options: .caseInsensitive),
+           let match = regex.firstMatch(in: rawText, range: NSRange(rawText.startIndex..., in: rawText)),
+           let numRange = Range(match.range(at: 1), in: rawText) {
+            let numStr = rawText[numRange].replacingOccurrences(of: ",", with: "")
+            detectedAmount = Double(numStr)
+        }
+
+        // Fallback decimal pattern: e.g. "5.10", "12.40"
+        if detectedAmount == nil {
+            let decimalPattern = #"(?<![0-9])([0-9]+(?:\.[0-9]{1,2}))(?![0-9])"#
+            if let regex = try? NSRegularExpression(pattern: decimalPattern),
+               let match = regex.firstMatch(in: rawText, range: NSRange(rawText.startIndex..., in: rawText)),
+               let numRange = Range(match.range(at: 1), in: rawText) {
+                detectedAmount = Double(rawText[numRange])
+            }
+        }
+
+        // If explicit merchant doesn't contain a currency string, keep it
+        if let exp = explicitMerchant?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !exp.isEmpty,
+           !exp.contains("$"),
+           !exp.lowercased().contains("hkd") {
+            return (detectedAmount, exp)
+        }
+
+        // Extract merchant from notification patterns like "HK$5.10 at MTR", "Paid HK$5.10 to KMB", "於 港鐵 消費 HK$5.10"
+        let source = notificationText ?? explicitMerchant ?? rawText
+        let atPatterns = [
+            #"(?:at|to|in|from|•|-)\s+([A-Za-z0-9\*\s&\.'\-_]+)"#,
+            #"於\s*([^\s]+)\s*(?:消費|付款|扣除)"#
+        ]
+        for pat in atPatterns {
+            if let regex = try? NSRegularExpression(pattern: pat, options: .caseInsensitive),
+               let match = regex.firstMatch(in: source, range: NSRange(source.startIndex..., in: source)),
+               let mRange = Range(match.range(at: 1), in: source) {
+                let candidate = String(source[mRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !candidate.isEmpty && candidate.lowercased() != "octopus" {
+                    return (detectedAmount, candidate)
+                }
+            }
+        }
+
+        // Otherwise strip the currency amount and common notification boilerplate words
+        var cleaned = source
+        if let regex = try? NSRegularExpression(pattern: currencyPattern, options: .caseInsensitive) {
+            cleaned = regex.stringByReplacingMatches(in: cleaned, range: NSRange(cleaned.startIndex..., in: cleaned), withTemplate: "")
+        }
+        let boilerplates = ["spent", "paid", "payment", "transaction", "octopus", "八達通", "已扣除", "扣除", "消費", "付款", "at", "via", "•", "|", "-"]
+        for word in boilerplates {
+            cleaned = cleaned.replacingOccurrences(of: word, with: " ", options: .caseInsensitive)
+        }
+        cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (detectedAmount, cleaned.isEmpty ? nil : cleaned)
     }
 
     // MARK: - Smart Merchant Normalization & POS Prefix Cleaner
@@ -261,7 +354,6 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return matched
         }
 
-        // Dedicated Octopus Category fallback:
         if inferredName == "Octopus" {
             let octopusCat = CategoryItem(
                 name: "Octopus",
@@ -309,17 +401,16 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return "Transport"
         }
 
-        // 3. Groceries / Retail / Mall / Bakery / Supplements
-        let groceryAndRetailMerchants = [
-            "wellcome", "parknshop", "fusion", "marketplace", "city'super", "donki", "don don donki",
-            "aeon", "yata", "759", "7-eleven", "circle k", "lung fung", "龍豐",
-            "ichicake", "cake", "bake", "bodybuilding", "kpay*", "bindo*", "mall", "mart", "store",
-            "mannings", "watsons", "惠康", "百佳", "一田", "阿信屋", "便利店", "超市", "萬寧", "屈臣氏"
+        // 3. Shopping / Electronics / Appliances / Apparel (Check before Groceries so Fortress/Broadway go to Shopping)
+        let shoppingMerchants = [
+            "fortress", "豐澤", "broadway", "百老滙", "log-on", "誠品", "eslite", "apple store",
+            "nike", "adidas", "lululemon", "taobao", "淘寶", "amazon", "uniqlo", "zara", "muji"
         ]
-        for g in groceryAndRetailMerchants where combinedMerch.contains(g) {
-            return "Groceries"
+        for s in shoppingMerchants where combinedMerch.contains(s) {
+            return "Shopping"
         }
 
+        // 4. Dining / Restaurants / Cafes
         let diningMerchants = [
             "starbucks", "mcdonald", "kfc", "pacific coffee", "fairwood", "cafe de coral", "maxim", "sushiro",
             "genki", "tamjai", "samgor", "pizza hut", "subway", "bakehouse", "shake shack", "cha chaan teng",
@@ -328,6 +419,17 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         ]
         for d in diningMerchants where combinedMerch.contains(d) {
             return "Dining"
+        }
+
+        // 5. Groceries / Retail / Mall / Bakery / Supplements
+        let groceryAndRetailMerchants = [
+            "wellcome", "parknshop", "fusion", "marketplace", "city'super", "donki", "don don donki",
+            "aeon", "yata", "759", "7-eleven", "circle k", "lung fung", "龍豐",
+            "ichicake", "cake", "bake", "bodybuilding", "kpay*", "bindo*", "mall", "mart", "store",
+            "mannings", "watsons", "惠康", "百佳", "一田", "阿信屋", "便利店", "超市", "萬寧", "屈臣氏"
+        ]
+        for g in groceryAndRetailMerchants where combinedMerch.contains(g) {
+            return "Groceries"
         }
 
         let utilityMerchants = [
@@ -340,7 +442,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
 
         let entertainmentMerchants = [
             "netflix", "spotify", "apple.com/bill", "itunes", "icloud", "youtube", "disney",
-            "broadway", "mcl", "golden harvest", "cinema", "steam", "playstation", "nintendo"
+            "mcl", "golden harvest", "cinema", "steam", "playstation", "nintendo"
         ]
         for e in entertainmentMerchants where combinedMerch.contains(e) {
             return "Entertainment"
@@ -352,13 +454,6 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         ]
         for h in healthMerchants where combinedMerch.contains(h) {
             return "Health & Fitness"
-        }
-
-        let shoppingMerchants = [
-            "fortress", "豐澤", "broadway", "百老滙", "log-on", "誠品", "eslite", "apple store", "nike", "adidas", "lululemon", "taobao", "淘寶", "amazon", "uniqlo", "zara", "muji"
-        ]
-        for s in shoppingMerchants where combinedMerch.contains(s) {
-            return "Shopping"
         }
 
         return "Groceries"
@@ -406,8 +501,10 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         let rawCard = cardOrPass?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
         let lowerMerch = rawMerch.lowercased()
-        let isBlankMerchantOctopusTap = (rawMerch.isEmpty || lowerMerch == "wallet purchase") && rawCard.isEmpty
-        let isExplicitOctopusMerchant = lowerMerch.contains("mtr") || lowerMerch.contains("kmb") ||
+        let lowerCard = rawCard.lowercased()
+        let isBlankMerchantOctopusTap = (rawMerch.isEmpty || lowerMerch == "wallet purchase") && (rawCard.isEmpty || lowerCard.contains("octopus") || lowerCard.contains("八達通"))
+        let isExplicitOctopusMerchant = lowerCard.contains("octopus") || lowerCard.contains("八達通") ||
+                                        lowerMerch.contains("mtr") || lowerMerch.contains("kmb") ||
                                         lowerMerch.contains("citybus") || lowerMerch.contains("octopus") ||
                                         lowerMerch.contains("lung fung") || lowerMerch.contains("龍豐") ||
                                         lowerMerch.contains("港鐵") || lowerMerch.contains("九巴") || lowerMerch.contains("八達通")
@@ -458,7 +555,6 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
                 }
             }
 
-            let lowerCard = rawCard.lowercased()
             let isTransit = lowerCard.contains("octopus") || lowerCard.contains("八達通") ||
                             lowerCard.contains("suica") || lowerCard.contains("pasmo") ||
                             lowerCard.contains("icoca") || lowerCard.contains("transit")
