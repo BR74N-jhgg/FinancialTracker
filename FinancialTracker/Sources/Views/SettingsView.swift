@@ -308,47 +308,177 @@ public struct SettingsView: View {
         }
     }
     
-    // MARK: - Shortcuts Guide Sheet
+    // MARK: - Shortcuts Guide Sheet (Option 1 + 2: 1-Tap Template + Visual 2-Tab Assistant)
     public struct ShortcutsGuideSheet: View {
         @Environment(\.dismiss) private var dismiss
+        @Environment(\.openURL) private var openURL
         @AppStorage("app_language") private var appLanguage: String = "en"
-        
+        @AppStorage("shortcut_template_icloud_url") private var templateICloudUrl: String = "https://www.icloud.com/shortcuts/worthly-autolog"
+
+        @State private var selectedTab: Int = 0 // 0: Apple Pay Cards, 1: Octopus & Transit
+
         public init() {}
-        
+
         public var body: some View {
             NavigationStack {
                 List {
+                    // MARK: - Option 1: 1-Tap Pre-Configured Template Card
                     Section {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(L10n.tr("Automate Logging with Apple Pay", lang: appLanguage))
-                                .font(.headline)
-                                .lineLimit(1)
-                            Text(L10n.tr("iOS Shortcuts can automatically prompt or log transactions whenever you tap an Apple Pay card or use Express Transit.", lang: appLanguage))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 12) {
+                                ZStack {
+                                    Circle()
+                                        .fill(LinearGradient(colors: [Color.blue, Color.purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                        .frame(width: 44, height: 44)
+                                    Image(systemName: "bolt.badge.automatic.fill")
+                                        .font(.title3)
+                                        .foregroundStyle(.white)
+                                }
+                                
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(appLanguage == "zh-HK" ? "一鍵安裝捷徑範本" : "One-Tap Shortcut Template")
+                                        .font(.headline)
+                                        .lineLimit(1)
+                                    Text(appLanguage == "zh-HK" ? "預先對應所有參數，安裝後立即可用" : "Pre-mapped with all Worthly fields")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            
+                            Text(
+                                appLanguage == "zh-HK"
+                                ? "點擊下方按鈕即可直接在 iPhone 安裝已配置完成的「Worthly 自動記帳」捷徑，無須手動設定任何變數。"
+                                : "Tap below to install the ready-to-use 'Worthly Auto-Log' shortcut directly on your iPhone without configuring any variables by hand."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            
+                            HStack(spacing: 10) {
+                                Button {
+                                    if let url = URL(string: templateICloudUrl), UIApplication.shared.canOpenURL(url) {
+                                        openURL(url)
+                                    } else if let shortcutsUrl = URL(string: "shortcuts://") {
+                                        openURL(shortcutsUrl)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "arrow.down.circle.fill")
+                                        Text(appLanguage == "zh-HK" ? "下載捷徑範本" : "Install Shortcut Template")
+                                            .fontWeight(.semibold)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(Color.blue)
+                                    .foregroundStyle(.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                                .buttonStyle(.plain)
+                                
+                                Button {
+                                    if let shortcutsUrl = URL(string: "shortcuts://") {
+                                        openURL(shortcutsUrl)
+                                    }
+                                } label: {
+                                    Image(systemName: "arrow.up.forward.app")
+                                        .font(.body.weight(.bold))
+                                        .padding(10)
+                                        .background(Color(.tertiarySystemFill))
+                                        .foregroundStyle(.primary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                         .padding(.vertical, 4)
                     }
                     
-                    Section(L10n.tr("Setup Guide", lang: appLanguage)) {
-                        StepRow(number: "1",
-                                title: L10n.tr("Open Shortcuts App", lang: appLanguage),
-                                description: L10n.tr("Navigate to the 'Automation' tab at the bottom.", lang: appLanguage))
-                        StepRow(number: "2",
-                                title: L10n.tr("New Automation", lang: appLanguage),
-                                description: L10n.tr("Tap '+' and search for the 'Transaction' trigger.", lang: appLanguage))
-                        StepRow(number: "3",
-                                title: L10n.tr("Select Cards", lang: appLanguage),
-                                description: L10n.tr("Select all your Apple Pay credit/debit cards and Express Transit cards (Octopus / Suica).", lang: appLanguage))
-                        StepRow(number: "4",
-                                title: L10n.tr("Run Automatically", lang: appLanguage),
-                                description: L10n.tr("Set trigger to 'Run Immediately' without confirmation.", lang: appLanguage))
-                        StepRow(number: "5",
-                                title: L10n.tr("Add Worthly Action", lang: appLanguage),
-                                description: L10n.tr("Select 'Auto-Log Wallet / Travel Card Payment' and map Amount, Merchant, and Card or Pass from Shortcut Input.", lang: appLanguage))
+                    // MARK: - Option 2: 2-Tab Setup Guide
+                    Section {
+                        Picker("Setup Type", selection: $selectedTab) {
+                            Text(appLanguage == "zh-HK" ? "信用卡 / Apple Pay" : "Apple Pay Cards").tag(0)
+                            Text(appLanguage == "zh-HK" ? "八達通 / 交通卡" : "Octopus Transit").tag(1)
+                        }
+                        .pickerStyle(.segmented)
+                        .padding(.vertical, 2)
+                    } header: {
+                        Text(appLanguage == "zh-HK" ? "自動化設定教學 (選定卡片類型)" : "Automation Walkthrough")
+                    } footer: {
+                        Text(
+                            selectedTab == 0
+                            ? (appLanguage == "zh-HK" ? "適用於所有 Apple Pay 信用卡及扣帳卡，感應付款即時記帳。" : "For all Apple Pay credit & debit cards. Logs instantly on NFC tap.")
+                            : (appLanguage == "zh-HK" ? "利用通知觸發自動讀取港鐵、巴士動態車資，免手動輸入金額。" : "Uses Notification trigger to read exact dynamic transit fares without typing.")
+                        )
+                    }
+
+                    if selectedTab == 0 {
+                        // TAB 1: Apple Pay Cards
+                        Section(appLanguage == "zh-HK" ? "Apple Pay 感應即時記帳" : "Apple Pay Tap Setup") {
+                            StepRow(
+                                number: "1",
+                                title: appLanguage == "zh-HK" ? "開啟「捷徑」App" : "Open Shortcuts App",
+                                description: appLanguage == "zh-HK" ? "進入底部的「自動化」標籤頁，點擊右上角「+」。" : "Tap the 'Automation' tab at the bottom, then tap '+'."
+                            )
+                            StepRow(
+                                number: "2",
+                                title: appLanguage == "zh-HK" ? "選擇「交易」觸發條件" : "Choose 'Transaction' Trigger",
+                                description: appLanguage == "zh-HK" ? "搜尋並選擇「交易」，勾選你的 Apple Pay 卡片，設定為「立即執行」。" : "Select 'Transaction', pick your cards, and choose 'Run Immediately'."
+                            )
+                            StepRow(
+                                number: "3",
+                                title: appLanguage == "zh-HK" ? "加入 Worthly 動作" : "Add Worthly Action",
+                                description: appLanguage == "zh-HK" ? "搜尋 Worthly 並選擇「Auto-Log Wallet & Travel Card」。" : "Select 'Auto-Log Wallet & Travel Card' under Worthly."
+                            )
+                            StepRow(
+                                number: "4",
+                                title: appLanguage == "zh-HK" ? "連結交易參數" : "Map Input Parameters",
+                                description: appLanguage == "zh-HK" ? "將 Amount 設為 [捷徑輸入 -> 金額]，Merchant 設為 [商戶]，Card 設為 [卡片]。" : "Map Amount -> [Shortcut Input -> Amount], Merchant -> [Merchant], Card -> [Card]."
+                            )
+                        }
+                    } else {
+                        // TAB 2: Octopus Notification Auto-Logging
+                        Section(appLanguage == "zh-HK" ? "八達通自動記帳" : "Octopus Dynamic Fare Setup") {
+                            StepRow(
+                                number: "1",
+                                title: appLanguage == "zh-HK" ? "新增「通知」自動化操作" : "Choose 'Notification' Trigger",
+                                description: appLanguage == "zh-HK" ? "在「自動化」點擊「+」，選擇「通知」（Notification），App 勾選「Wallet」及「八達通」。" : "In Shortcuts Automation tap '+', choose 'Notification', select 'Wallet' and 'Octopus'."
+                            )
+                            StepRow(
+                                number: "2",
+                                title: appLanguage == "zh-HK" ? "設定為「立即執行」" : "Set to 'Run Immediately'",
+                                description: appLanguage == "zh-HK" ? "勾選「立即執行」並關閉「執行時通知」，點擊「下一步」。" : "Select 'Run Immediately' and turn off 'Notify When Run', then tap Next."
+                            )
+                            StepRow(
+                                number: "3",
+                                title: appLanguage == "zh-HK" ? "加入 Worthly 動作" : "Add Worthly Action",
+                                description: appLanguage == "zh-HK" ? "加入「Auto-Log Wallet & Travel Card」，點擊「展開」顯示詳細欄位。" : "Add 'Auto-Log Wallet & Travel Card' and expand details."
+                            )
+                            StepRow(
+                                number: "4",
+                                title: appLanguage == "zh-HK" ? "連結通知文字 (免填金額)" : "Link Notification Text",
+                                description: appLanguage == "zh-HK" ? "Amount 留空！將 Notification or Raw Text 設為 [通知 -> 內文]，Card 設為 [通知 -> 標題]。" : "Leave Amount blank! Map 'Notification or Raw Text' -> [Notification -> Body], Card -> [Title]."
+                            )
+                        }
+                    }
+                    
+                    Section {
+                        Button {
+                            if let url = URL(string: "https://www.icloud.com/shortcuts/de15d734f77f43e1869d6b0309cea038") {
+                                openURL(url)
+                            }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                Image(systemName: "arrow.up.forward.app.fill")
+                                Text(appLanguage == "zh-HK" ? "立即開啟「捷徑」App 設定" : "Open Shortcuts App Now")
+                                    .fontWeight(.bold)
+                                Spacer()
+                            }
+                            .foregroundStyle(.blue)
+                        }
                     }
                 }
-                .navigationTitle(L10n.tr("Apple Pay Setup", lang: appLanguage))
+                .navigationTitle(appLanguage == "zh-HK" ? "自動記帳設定" : "Auto-Log Setup")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
