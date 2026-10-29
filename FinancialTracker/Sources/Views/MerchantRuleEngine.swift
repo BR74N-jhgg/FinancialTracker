@@ -36,49 +36,44 @@ public struct MerchantRuleEngine: Sendable {
         (["towngas", "煤氣"], "Towngas")
     ]
 
-    // MARK: 3. Category Keyword Rules (Evaluated in Priority Order)
-    public static let shoppingKeywords: [String] = [
-        "fortress", "豐澤", "broadway", "百老滙", "log-on", "誠品", "eslite", "apple store",
-        "nike", "adidas", "lululemon", "taobao", "淘寶", "amazon", "uniqlo", "zara", "muji"
-    ]
-
-    public static let diningKeywords: [String] = [
-        "starbucks", "mcdonald", "kfc", "pacific coffee", "fairwood", "cafe de coral", "maxim", "sushiro",
-        "genki", "tamjai", "samgor", "pizza hut", "subway", "bakehouse", "shake shack", "cha chaan teng",
-        "canteen", "coffee", "cafe", "restaurant",
-        "大快活", "大家樂", "美心", "壽司郎", "元氣", "譚仔", "三哥", "茶餐廳", "酒樓", "餐廳"
-    ]
-
-    public static let groceriesKeywords: [String] = [
-        "wellcome", "parknshop", "fusion", "marketplace", "city'super", "donki", "don don donki",
-        "aeon", "yata", "759", "7-eleven", "7 eleven", "circle k", "lung fung", "龍豐",
-        "ichicake", "cake", "bake", "bodybuilding", "kpay*", "bindo*", "mall", "mart", "store",
-        "mannings", "watsons", "惠康", "百佳", "一田", "阿信屋", "便利店", "超市", "萬寧", "屈臣氏"
-    ]
-
-    public static let utilitiesKeywords: [String] = [
-        "clp", "towngas", "hkelectric", "autotoll", "water supplies", "hkbn", "pccw", "smartone", "csl", "3hk", "cmhk", "broadband",
-        "中電", "港燈", "煤氣", "水費", "香港寬頻", "電訊盈科"
-    ]
-
-    public static let entertainmentKeywords: [String] = [
-        "netflix", "spotify", "apple.com/bill", "itunes", "icloud", "youtube", "disney",
-        "mcl", "golden harvest", "cinema", "steam", "playstation", "nintendo"
-    ]
-
-    public static let healthKeywords: [String] = [
-        "panadol", "clinic", "hospital", "dental", "pharmacy", "gym", "fitness",
-        "診所", "醫院", "藥房"
-    ]
-
-    public static let octopusTransitKeywords: [String] = [
-        "train", "mtr", "bus", "kmb", "citybus", "nwfb", "tram", "ferry",
-        "octopus", "港鐵", "九巴", "城巴", "新巴", "八達通"
-    ]
-
-    public static let generalTransportKeywords: [String] = [
-        "star ferry", "taxi", "uber", "tunnel", "hketoll", "peak tram", "light rail", "green minibus", "red minibus",
-        "suica", "pasmo", "icoca", "transit", "天星小輪", "的士", "電車", "輕鐵", "小巴"
+    // MARK: 3. Fully Data-Driven Category Rules (Specific Merchants First -> Transit -> Fallback)
+    public static let categoryRules: [(category: String, keywords: [String])] = [
+        ("Shopping", [
+            "fortress", "豐澤", "broadway", "百老滙", "log-on", "誠品", "eslite", "apple store",
+            "nike", "adidas", "lululemon", "taobao", "淘寶", "amazon", "uniqlo", "zara", "muji"
+        ]),
+        ("Dining", [
+            "starbucks", "mcdonald", "kfc", "pacific coffee", "fairwood", "cafe de coral", "maxim", "sushiro",
+            "genki", "tamjai", "samgor", "pizza hut", "subway", "bakehouse", "shake shack", "cha chaan teng",
+            "canteen", "coffee", "cafe", "restaurant",
+            "大快活", "大家樂", "美心", "壽司郎", "元氣", "譚仔", "三哥", "茶餐廳", "酒樓", "餐廳"
+        ]),
+        ("Groceries", [
+            "wellcome", "parknshop", "fusion", "marketplace", "city'super", "donki", "don don donki",
+            "aeon", "yata", "759", "7-eleven", "7 eleven", "circle k", "lung fung", "龍豐",
+            "ichicake", "cake", "bake", "bodybuilding", "kpay*", "bindo*", "mall", "mart", "store",
+            "mannings", "watsons", "惠康", "百佳", "一田", "阿信屋", "便利店", "超市", "萬寧", "屈臣氏"
+        ]),
+        ("Bills & Utilities", [
+            "clp", "towngas", "hkelectric", "autotoll", "water supplies", "hkbn", "pccw", "smartone", "csl", "3hk", "cmhk", "broadband",
+            "中電", "港燈", "煤氣", "水費", "香港寬頻", "電訊盈科"
+        ]),
+        ("Entertainment", [
+            "netflix", "spotify", "apple.com/bill", "itunes", "icloud", "youtube", "disney",
+            "mcl", "golden harvest", "cinema", "steam", "playstation", "nintendo"
+        ]),
+        ("Health & Fitness", [
+            "panadol", "clinic", "hospital", "dental", "pharmacy", "gym", "fitness",
+            "診所", "醫院", "藥房"
+        ]),
+        ("Octopus", [
+            "wallet purchase", "train", "mtr", "bus", "kmb", "citybus", "nwfb", "tram", "ferry",
+            "octopus", "港鐵", "九巴", "城巴", "新巴", "八達通"
+        ]),
+        ("Transport", [
+            "star ferry", "taxi", "uber", "tunnel", "hketoll", "peak tram", "light rail", "green minibus", "red minibus",
+            "suica", "pasmo", "icoca", "transit", "天星小輪", "的士", "電車", "輕鐵", "小巴"
+        ])
     ]
 
     // MARK: 4. Zero-Charge Entry Gate / Card Read Detector
@@ -229,40 +224,21 @@ public struct MerchantRuleEngine: Sendable {
         return cleaned.isEmpty ? rawClean : cleaned
     }
 
-    // MARK: 9. Data-Driven Category Inference
+    // MARK: 9. 100% Data-Driven Category Inference
     public static func inferCategoryName(for merchant: String, rawMerchant: String? = nil, cardName: String? = nil) -> String {
         let cleanMerch = merchant.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let rawLower = (rawMerchant ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let combinedMerch = "\(cleanMerch) \(rawLower)"
         let cleanCard = (cardName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        if shoppingKeywords.contains(where: { combinedMerch.contains($0) }) {
-            return "Shopping"
-        }
-        if diningKeywords.contains(where: { combinedMerch.contains($0) }) {
-            return "Dining"
-        }
-        if groceriesKeywords.contains(where: { combinedMerch.contains($0) }) {
-            return "Groceries"
-        }
-        if utilitiesKeywords.contains(where: { combinedMerch.contains($0) }) {
-            return "Bills & Utilities"
-        }
-        if entertainmentKeywords.contains(where: { combinedMerch.contains($0) }) {
-            return "Entertainment"
-        }
-        if healthKeywords.contains(where: { combinedMerch.contains($0) }) {
-            return "Health & Fitness"
-        }
-
-        if cleanCard.contains("octopus") || cleanCard.contains("八達通") ||
-           cleanMerch.isEmpty || cleanMerch == "wallet purchase" ||
-           octopusTransitKeywords.contains(where: { combinedMerch.contains($0) }) {
+        if cleanMerch.isEmpty {
             return "Octopus"
         }
 
-        if generalTransportKeywords.contains(where: { combinedMerch.contains($0) }) {
-            return "Transport"
+        let searchTarget = "\(cleanMerch) \(rawLower) \(cleanCard)"
+        for rule in categoryRules {
+            if rule.keywords.contains(where: { searchTarget.contains($0) }) {
+                return rule.category
+            }
         }
 
         return "Groceries"
@@ -296,7 +272,7 @@ public struct MerchantRuleEngine: Sendable {
         }
     }
 
-    // MARK: 10. Fuzzy Card Token Matcher (Deduplicates "Hang Seng CUHK Plat Visa" -> "CUHK Credit Card")
+    // MARK: 10. Fuzzy Card Token Matcher
     public static func findMatchingAccountName(incomingCardName: String, existingNames: [String]) -> String? {
         let rawCard = incomingCardName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !rawCard.isEmpty else { return nil }

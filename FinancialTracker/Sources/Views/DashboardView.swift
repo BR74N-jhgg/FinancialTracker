@@ -2,6 +2,14 @@
 //  DashboardView.swift
 //  Worthly
 //
+//  Modularized into focused sub-views:
+//  - DashboardView (Coordinator)
+//  - DashboardHeaderView (Net Worth & Monthly Budget Pacing Cards)
+//  - DashboardFeaturedAnalyticsView (Interactive Financial Breakdown)
+//  - DashboardQuickActionsView (1-Tap Quick Actions Bar & Undo Banner)
+//  - DashboardRecentTransactionsView (Recent Transactions List)
+//  - CustomizeQuickActionsView & EditQuickActionSheet
+//
 
 import Foundation
 import SwiftUI
@@ -32,11 +40,9 @@ public struct DashboardView: View {
     @State private var instantLogBannerText: String? = nil
     @State private var lastInstantLoggedTransaction: TransactionItem? = nil
     
-    // Cached snapshot + synchronous fallback ensures Frame-1 rendering on cold launch
     @State private var cachedSnapshot: DashboardMetricsSnapshot? = nil
     @State private var selectedTrendDay: Int? = nil
     
-    // Tracks any change to transactions, budget, currency, or language
     private var dashboardCalculationKey: Int {
         var hasher = Hasher()
         hasher.combine(transactions.count)
@@ -55,42 +61,12 @@ public struct DashboardView: View {
         return hasher.finalize()
     }
     
-    // Frame-0 safe metrics: if @State cache hasn't caught up yet on cold start,
-    // computes synchronously from @Query transactions just like Net Worth does.
     private var currentMetrics: DashboardMetricsSnapshot {
         let key = dashboardCalculationKey
         if let cached = cachedSnapshot, cached.key == key {
             return cached
         }
         return buildMetricsSnapshot(forKey: key)
-    }
-    
-    private var totalSpentThisMonth: Double {
-        currentMetrics.totalSpentThisMonth
-    }
-    
-    private var monthlyTrendData: [TrendPoint] {
-        currentMetrics.monthlyTrendData
-    }
-    
-    private var cachedDayOfWeek: [DashboardDayItem] {
-        currentMetrics.dayOfWeek
-    }
-    
-    private var cachedCashFlow: [DashboardFlowBar] {
-        currentMetrics.cashFlow
-    }
-    
-    private var cachedCategories: [DashboardCatShare] {
-        currentMetrics.categories
-    }
-    
-    private var cachedPaymentMethods: [DashboardMethodItem] {
-        currentMetrics.paymentMethods
-    }
-    
-    private var cachedTopMerchants: [DashboardMerchantItem] {
-        currentMetrics.topMerchants
     }
     
     private var onNavigateToAnalytics: (() -> Void)? = nil
@@ -121,23 +97,67 @@ public struct DashboardView: View {
     }
     
     private var remainingBudget: Double {
-        max(0.0, monthlyBudget - totalSpentThisMonth)
+        max(0.0, monthlyBudget - currentMetrics.totalSpentThisMonth)
     }
     
     private var budgetProgress: Double {
         guard monthlyBudget > 0 else { return 0.0 }
-        return min(totalSpentThisMonth / monthlyBudget, 1.0)
+        return min(currentMetrics.totalSpentThisMonth / monthlyBudget, 1.0)
     }
     
     public var body: some View {
+        let metrics = currentMetrics
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: 20) {
-                    netWorthHeroCard
-                    budgetHeroCard
-                    interactiveSnapshotsSection
-                    customQuickActionsSection
-                    recentTransactionsSection
+                    DashboardHeaderView(
+                        netWorth: netWorth,
+                        totalAssets: totalAssets,
+                        totalLiabilities: totalLiabilities,
+                        totalSpentThisMonth: metrics.totalSpentThisMonth,
+                        monthlyBudget: monthlyBudget,
+                        remainingBudget: remainingBudget,
+                        budgetProgress: budgetProgress,
+                        monthlyTrendData: metrics.monthlyTrendData,
+                        defaultCurrency: defaultCurrency,
+                        appLanguage: appLanguage,
+                        isPrivacyMode: $isPrivacyMode,
+                        showingAccountsManager: $showingAccountsManager,
+                        selectedTrendDay: $selectedTrendDay
+                    )
+                    
+                    DashboardFeaturedAnalyticsView(
+                        activeSnapshot: $activeSnapshot,
+                        dayOfWeek: metrics.dayOfWeek,
+                        cashFlow: metrics.cashFlow,
+                        categories: metrics.categories,
+                        paymentMethods: metrics.paymentMethods,
+                        topMerchants: metrics.topMerchants,
+                        defaultCurrency: defaultCurrency,
+                        appLanguage: appLanguage,
+                        onNavigateToAnalytics: onNavigateToAnalytics
+                    )
+                    
+                    DashboardQuickActionsView(
+                        quickActions: quickActions,
+                        defaultCurrency: defaultCurrency,
+                        appLanguage: appLanguage,
+                        instantLogBannerText: instantLogBannerText,
+                        canUndoInstantLog: lastInstantLoggedTransaction != nil,
+                        onTapAction: { handleQuickActionTap($0) },
+                        onInstantLogAction: { action, amt in performInstantQuickAction(action, amount: amt) },
+                        onCustomAmountAction: { activeQuickAction = $0 },
+                        onEditAction: { directEditingQuickAction = $0 },
+                        onOpenCustomize: { showingCustomizeShortcuts = true },
+                        onUndoInstantLog: { undoLastInstantLog() }
+                    )
+                    
+                    DashboardRecentTransactionsView(
+                        transactions: transactions,
+                        defaultCurrency: defaultCurrency,
+                        appLanguage: appLanguage,
+                        onSelectTransaction: { selectedItemToEdit = $0 }
+                    )
                 }
                 .padding(.horizontal)
                 .padding(.bottom, 24)
@@ -228,7 +248,111 @@ public struct DashboardView: View {
         }
     }
 
-    // MARK: - Synchronous, Zero-Delay Metrics Calculation
+    // MARK: - Quick Action Handlers
+    private func handleQuickActionTap(_ action: QuickActionItem) {
+        if action.shouldInstantLog, let amt = action.defaultAmount, amt > 0 {
+            performInstantQuickAction(action, amount: amt)
+        } else {
+            activeQuickAction = action
+        }
+    }
+
+    private func performInstantQuickAction(_ action: QuickActionItem, amount: Double) {
+        let resolvedCategory: CategoryItem? = {
+            if !action.defaultCategoryName.isEmpty {
+                if let match = allCategories.first(where: {
+                    $0.name.localizedCaseInsensitiveCompare(action.defaultCategoryName) == .orderedSame ||
+                    $0.name.localizedCaseInsensitiveContains(action.defaultCategoryName)
+                }) {
+                    return match
+                }
+            }
+            return allCategories.first
+        }()
+
+        let resolvedMethod: PaymentMethodItem? = {
+            if !action.defaultPaymentMethodName.isEmpty {
+                if let match = allAccounts.first(where: {
+                    $0.name.localizedCaseInsensitiveCompare(action.defaultPaymentMethodName) == .orderedSame ||
+                    $0.name.localizedCaseInsensitiveContains(action.defaultPaymentMethodName)
+                }) {
+                    return match
+                }
+            }
+            return allAccounts.first
+        }()
+
+        let resolvedToMethod: PaymentMethodItem? = {
+            guard action.transactionType == .transfer else { return nil }
+            let destName = action.toPaymentMethodName ?? "Octopus"
+            return allAccounts.first(where: { $0.name.localizedCaseInsensitiveContains(destName) })
+        }()
+
+        let merch = action.defaultMerchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? action.title
+            : action.defaultMerchant
+
+        let finalMerch: String = {
+            if action.transactionType == .transfer {
+                return String(format: "%@ → %@", resolvedMethod?.name ?? "Account", resolvedToMethod?.name ?? "Octopus")
+            }
+            return merch
+        }()
+
+        let newTx = TransactionItem(
+            timestamp: Date(),
+            amount: amount,
+            currency: defaultCurrency,
+            merchant: finalMerch,
+            notes: action.transactionType == .transfer ? "1-Tap Octopus Top-Up" : "1-Tap Quick Action",
+            type: action.transactionType,
+            category: action.transactionType == .transfer ? nil : resolvedCategory,
+            paymentMethod: resolvedMethod,
+            toPaymentMethod: resolvedToMethod,
+            isExcludedFromBudget: false
+        )
+
+        modelContext.insert(newTx)
+        AppDataStore.saveContext(modelContext)
+
+        let affectedIds = Set([resolvedMethod?.id, resolvedToMethod?.id].compactMap { $0 })
+        if !affectedIds.isEmpty {
+            AccountBalanceManager.shared.recalculateBalances(forAccountIds: affectedIds, context: modelContext)
+        } else {
+            AccountBalanceManager.shared.recalculateBalances(context: modelContext)
+        }
+        recomputeMetrics(forceSyncWidget: true)
+
+        #if canImport(UIKit)
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        #endif
+
+        let sign = action.transactionType == .income ? "+" : (action.transactionType == .transfer ? "⇄ " : "-")
+        withAnimation(.spring(response: 0.3)) {
+            lastInstantLoggedTransaction = newTx
+            instantLogBannerText = String(format: "%@%@ %.2f • %@", sign, defaultCurrency, amount, finalMerch)
+        }
+    }
+
+    private func undoLastInstantLog() {
+        guard let tx = lastInstantLoggedTransaction else { return }
+        let affectedIds = Set([tx.paymentMethod?.id, tx.toPaymentMethod?.id].compactMap { $0 })
+        modelContext.delete(tx)
+        AppDataStore.saveContext(modelContext)
+        if !affectedIds.isEmpty {
+            AccountBalanceManager.shared.recalculateBalances(forAccountIds: affectedIds, context: modelContext)
+        } else {
+            AccountBalanceManager.shared.recalculateBalances(context: modelContext)
+        }
+        recomputeMetrics(forceSyncWidget: true)
+        withAnimation(.easeOut(duration: 0.2)) {
+            lastInstantLoggedTransaction = nil
+            instantLogBannerText = nil
+        }
+    }
+
+    // MARK: - Synchronous Metrics Calculation & Auto-Repair
     private func buildMetricsSnapshot(forKey key: Int) -> DashboardMetricsSnapshot {
         let calendar = Calendar.current
         let now = Date()
@@ -289,7 +413,6 @@ public struct DashboardView: View {
             merchantTotals[merch, default: 0.0] += amount
         }
         
-        // 1. Cumulative Monthly Trend Pacing (Day 1 ... Today)
         var cumulative: Double = 0.0
         var trendPoints: [TrendPoint] = []
         trendPoints.reserveCapacity(currentDay)
@@ -298,20 +421,17 @@ public struct DashboardView: View {
             trendPoints.append(TrendPoint(day: day, amount: cumulative))
         }
         
-        // 2. Day of Week (Mon -> Sun)
         let weekdayOrder = [2, 3, 4, 5, 6, 7, 1]
         let dayOfWeekItems = weekdayOrder.map { w in
             let safeName = (w - 1 >= 0 && w - 1 < weekdayNames.count) ? weekdayNames[w - 1] : "D\(w)"
             return DashboardDayItem(day: w, name: safeName, total: weekTotals[w] ?? 0.0)
         }
         
-        // 3. Cash Flow
         let cashFlowItems = [
             DashboardFlowBar(label: incomeLabel, amount: totalIncomeThisMonth, isIncome: true),
             DashboardFlowBar(label: expenseLabel, amount: spentThisMonth, isIncome: false)
         ]
         
-        // 4. Top Categories
         let categoryItems = catTotals.map { name, total in
             DashboardCatShare(name: name, colorHex: catColors[name] ?? "#007AFF", total: total)
         }
@@ -319,7 +439,6 @@ public struct DashboardView: View {
         .prefix(4)
         .map { $0 }
         
-        // 5. Top Payment Methods
         let methodItems = methodTotals.map { name, total in
             DashboardMethodItem(name: name, colorHex: methodColors[name] ?? "#007AFF", total: total)
         }
@@ -327,7 +446,6 @@ public struct DashboardView: View {
         .prefix(3)
         .map { $0 }
         
-        // 6. Top Merchants
         let merchantItems = merchantTotals.map { name, total in
             DashboardMerchantItem(name: name, total: total)
         }
@@ -373,27 +491,22 @@ public struct DashboardView: View {
 
         var didChange = false
 
-        // Ensure CUHK Credit Card has a distinct credit card icon & blue color so it never clashes with purple Bank Transfer / FPS
-        if let cuhk = primaryCuhkCard {
-            if cuhk.colorHex == "#5856D6" {
-                cuhk.colorHex = "#007AFF"
-                cuhk.iconName = "creditcard.fill"
-                didChange = true
-            }
+        if let cuhk = primaryCuhkCard, cuhk.colorHex == "#5856D6" {
+            cuhk.colorHex = "#007AFF"
+            cuhk.iconName = "creditcard.fill"
+            didChange = true
         }
 
         for item in transactions where item.type == .expense {
             let catName = item.category?.name ?? "Other"
             let merchLower = item.merchant.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-            // Remove $0 entry-gate notifications ("Card Read" / "Trip in Progress") that accidentally logged card balance
             if merchLower == "card read" || merchLower == "trip in progress" || merchLower.contains("no charge") {
                 modelContext.delete(item)
                 didChange = true
                 continue
             }
 
-            // Repair exit-gate notification where "Your new balance is HK$60.90." was logged instead of "HK$3.20 for Train"
             if merchLower.contains("your new balance is") || merchLower.contains("current balance is") {
                 item.merchant = "MTR"
                 if abs(item.amount - 60.90) < 0.01 {
@@ -409,7 +522,6 @@ public struct DashboardView: View {
                 continue
             }
 
-            // Merge duplicate "Hang Seng CUHK..." account into "CUHK Credit Card"
             if let pmName = item.paymentMethod?.name,
                pmName != "CUHK Credit Card",
                pmName.localizedCaseInsensitiveContains("CUHK"),
@@ -418,7 +530,6 @@ public struct DashboardView: View {
                 didChange = true
             }
 
-            // Fix Fortress -> Shopping (instead of Groceries)
             if (merchLower.contains("fortress") || merchLower.contains("豐澤")),
                let sCat = shoppingCat,
                catName != sCat.name {
@@ -426,7 +537,6 @@ public struct DashboardView: View {
                 didChange = true
             }
 
-            // Automatically route Octopus / transit taps to the dedicated "Octopus" category
             if catName == "Other" || catName == "Transport" || item.category == nil {
                 if merchLower.isEmpty || merchLower == "wallet purchase" || merchLower.contains("octopus") || merchLower.contains("mtr") || merchLower.contains("kmb") {
                     if let octCat = octopusCat {
@@ -456,12 +566,65 @@ public struct DashboardView: View {
         }
 
         if didChange {
-            try? modelContext.save()
+            AppDataStore.saveContext(modelContext)
             AccountBalanceManager.shared.recalculateBalances(context: modelContext)
         }
     }
+}
 
-    // MARK: - 0. Net Worth Hero Card
+public struct DashboardHeaderView: View {
+    public let netWorth: Double
+    public let totalAssets: Double
+    public let totalLiabilities: Double
+    public let totalSpentThisMonth: Double
+    public let monthlyBudget: Double
+    public let remainingBudget: Double
+    public let budgetProgress: Double
+    public let monthlyTrendData: [TrendPoint]
+    public let defaultCurrency: String
+    public let appLanguage: String
+    @Binding public var isPrivacyMode: Bool
+    @Binding public var showingAccountsManager: Bool
+    @Binding public var selectedTrendDay: Int?
+
+    public init(
+        netWorth: Double,
+        totalAssets: Double,
+        totalLiabilities: Double,
+        totalSpentThisMonth: Double,
+        monthlyBudget: Double,
+        remainingBudget: Double,
+        budgetProgress: Double,
+        monthlyTrendData: [TrendPoint],
+        defaultCurrency: String,
+        appLanguage: String,
+        isPrivacyMode: Binding<Bool>,
+        showingAccountsManager: Binding<Bool>,
+        selectedTrendDay: Binding<Int?>
+    ) {
+        self.netWorth = netWorth
+        self.totalAssets = totalAssets
+        self.totalLiabilities = totalLiabilities
+        self.totalSpentThisMonth = totalSpentThisMonth
+        self.monthlyBudget = monthlyBudget
+        self.remainingBudget = remainingBudget
+        self.budgetProgress = budgetProgress
+        self.monthlyTrendData = monthlyTrendData
+        self.defaultCurrency = defaultCurrency
+        self.appLanguage = appLanguage
+        self._isPrivacyMode = isPrivacyMode
+        self._showingAccountsManager = showingAccountsManager
+        self._selectedTrendDay = selectedTrendDay
+    }
+
+    public var body: some View {
+        VStack(spacing: 20) {
+            netWorthHeroCard
+            budgetHeroCard
+        }
+    }
+
+    // MARK: - 1. Net Worth Hero Card
     @ViewBuilder
     private var netWorthHeroCard: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -557,7 +720,7 @@ public struct DashboardView: View {
         .shadow(color: Color.blue.opacity(0.2), radius: 8, x: 0, y: 4)
     }
 
-    // MARK: - 1. Budget Hero Card (Upgraded Proportional Trend & Pace Line)
+    // MARK: - 2. Budget Hero Card
     @ViewBuilder
     private var budgetHeroCard: some View {
         let calendar = Calendar.current
@@ -568,8 +731,6 @@ public struct DashboardView: View {
         let idealSpendToday = dailyBudgetPace * Double(currentDay)
         let paceDelta = idealSpendToday - totalSpentThisMonth
         let isUnderPace = paceDelta >= 0
-        
-        // Proportional Y-axis ceiling so 9% spend looks like 9% of budget, while keeping the full month pace visible
         let yMax = max(monthlyBudget * 1.05, totalSpentThisMonth * 1.15, 100.0)
         
         VStack(alignment: .leading, spacing: 14) {
@@ -619,7 +780,6 @@ public struct DashboardView: View {
                     Spacer()
                 }
             } else {
-                // Interactive Scrubbing / Pace Status Header
                 HStack(spacing: 6) {
                     if let selectedDay = selectedTrendDay,
                        let point = monthlyTrendData.first(where: { $0.day == selectedDay }) {
@@ -670,7 +830,6 @@ public struct DashboardView: View {
                 let lineColor: Color = budgetProgress > 0.9 ? .red : (isUnderPace ? .blue : .orange)
                 
                 Chart {
-                    // 1. Ideal Budget Pace Line (Day 1 -> End of Month)
                     if monthlyBudget > 0 {
                         LineMark(
                             x: .value("Day", 1),
@@ -689,7 +848,6 @@ public struct DashboardView: View {
                         .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [4, 4]))
                     }
                     
-                    // 2. Actual Cumulative Spending Area & Line (Day 1 -> Today)
                     ForEach(monthlyTrendData) { pt in
                         AreaMark(
                             x: .value("Day", pt.day),
@@ -715,7 +873,6 @@ public struct DashboardView: View {
                         .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
                     }
                     
-                    // 3. Current Day Endpoint Marker (or Selected Scrub Day Marker)
                     if let activeDay = selectedTrendDay,
                        let activePoint = monthlyTrendData.first(where: { $0.day == activeDay }) {
                         RuleMark(x: .value("Selected Day", activeDay))
@@ -804,95 +961,48 @@ public struct DashboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 3)
     }
+}
 
-    // MARK: - 2. Interactive Snapshot Selector
-    @ViewBuilder
-    private var interactiveSnapshotsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(L10n.tr("Financial Breakdown", lang: appLanguage))
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer()
-            }
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    snapshotPill(title: L10n.tr("Day of Week", lang: appLanguage), key: "dayOfWeek", icon: "calendar")
-                    snapshotPill(title: L10n.tr("Categories", lang: appLanguage), key: "categories", icon: "chart.pie.fill")
-                    snapshotPill(title: L10n.tr("Cash Flow", lang: appLanguage), key: "cashFlow", icon: "arrow.left.arrow.right")
-                    snapshotPill(title: L10n.tr("Payment Share", lang: appLanguage), key: "paymentMethods", icon: "creditcard.fill")
-                    snapshotPill(title: L10n.tr("Top Merchants", lang: appLanguage), key: "topMerchants", icon: "building.2.fill")
-                }
-                .padding(.vertical, 2)
-            }
-            
-            VStack(alignment: .leading, spacing: 10) {
-                switch activeSnapshot {
-                case "categories":
-                    MiniCategorySnapshot(data: cachedCategories, currency: defaultCurrency)
-                case "cashFlow":
-                    MiniCashFlowSnapshot(data: cachedCashFlow)
-                case "paymentMethods":
-                    MiniPaymentMethodSnapshot(data: cachedPaymentMethods)
-                case "topMerchants":
-                    MiniTopMerchantsSnapshot(data: cachedTopMerchants)
-                default:
-                    MiniDayOfWeekSnapshot(data: cachedDayOfWeek)
-                }
-                
-                Divider()
-                    .padding(.top, 6)
-                
-                Button {
-                    onNavigateToAnalytics?()
-                } label: {
-                    HStack {
-                        Text(L10n.tr("View Full Analytics", lang: appLanguage))
-                            .font(.caption.weight(.semibold))
-                            .lineLimit(1)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption2)
-                    }
-                    .foregroundStyle(.blue)
-                    .padding(.top, 4)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding()
-            .background(Color(.secondarySystemGroupedBackground))
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
-        }
+public struct DashboardQuickActionsView: View {
+    public let quickActions: [QuickActionItem]
+    public let defaultCurrency: String
+    public let appLanguage: String
+    public let instantLogBannerText: String?
+    public let canUndoInstantLog: Bool
+    public let onTapAction: (QuickActionItem) -> Void
+    public let onInstantLogAction: (QuickActionItem, Double) -> Void
+    public let onCustomAmountAction: (QuickActionItem) -> Void
+    public let onEditAction: (QuickActionItem) -> Void
+    public let onOpenCustomize: () -> Void
+    public let onUndoInstantLog: () -> Void
+
+    public init(
+        quickActions: [QuickActionItem],
+        defaultCurrency: String,
+        appLanguage: String,
+        instantLogBannerText: String?,
+        canUndoInstantLog: Bool,
+        onTapAction: @escaping (QuickActionItem) -> Void,
+        onInstantLogAction: @escaping (QuickActionItem, Double) -> Void,
+        onCustomAmountAction: @escaping (QuickActionItem) -> Void,
+        onEditAction: @escaping (QuickActionItem) -> Void,
+        onOpenCustomize: @escaping () -> Void,
+        onUndoInstantLog: @escaping () -> Void
+    ) {
+        self.quickActions = quickActions
+        self.defaultCurrency = defaultCurrency
+        self.appLanguage = appLanguage
+        self.instantLogBannerText = instantLogBannerText
+        self.canUndoInstantLog = canUndoInstantLog
+        self.onTapAction = onTapAction
+        self.onInstantLogAction = onInstantLogAction
+        self.onCustomAmountAction = onCustomAmountAction
+        self.onEditAction = onEditAction
+        self.onOpenCustomize = onOpenCustomize
+        self.onUndoInstantLog = onUndoInstantLog
     }
 
-    private func snapshotPill(title: String, key: String, icon: String) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.3)) {
-                activeSnapshot = key
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: icon)
-                    .font(.caption2)
-                Text(title)
-                    .font(.caption.bold())
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(activeSnapshot == key ? Color.blue : Color(.tertiarySystemFill))
-            .foregroundStyle(activeSnapshot == key ? .white : .primary)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - 3. Customizable Quick Actions Section (With 1-Tap Instant Logging & Undo Toast)
-    @ViewBuilder
-    private var customQuickActionsSection: some View {
+    public var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(L10n.tr("Quick Actions", lang: appLanguage))
@@ -900,9 +1010,7 @@ public struct DashboardView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                 Spacer()
-                Button {
-                    showingCustomizeShortcuts = true
-                } label: {
+                Button(action: onOpenCustomize) {
                     HStack(spacing: 4) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.caption2)
@@ -927,10 +1035,8 @@ public struct DashboardView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     Spacer()
-                    if lastInstantLoggedTransaction != nil {
-                        Button {
-                            undoLastInstantLog()
-                        } label: {
+                    if canUndoInstantLog {
+                        Button(action: onUndoInstantLog) {
                             Text(appLanguage == "zh-HK" ? "撤銷" : "Undo")
                                 .font(.caption.bold())
                                 .padding(.horizontal, 8)
@@ -953,7 +1059,7 @@ public struct DashboardView: View {
                 HStack(spacing: 12) {
                     ForEach(quickActions) { action in
                         Button {
-                            handleQuickActionTap(action)
+                            onTapAction(action)
                         } label: {
                             VStack(spacing: 5) {
                                 ZStack(alignment: .topTrailing) {
@@ -983,7 +1089,7 @@ public struct DashboardView: View {
                                     Text(
                                         String(
                                             format: "%@%@ %.1f",
-                                            action.transactionType == .income ? "+" : "-",
+                                            action.transactionType == .income ? "+" : (action.transactionType == .transfer ? "⇄ " : "-"),
                                             defaultCurrency,
                                             amt
                                         )
@@ -1007,7 +1113,7 @@ public struct DashboardView: View {
                         .contextMenu {
                             if let amt = action.defaultAmount, amt > 0 {
                                 Button {
-                                    performInstantQuickAction(action, amount: amt)
+                                    onInstantLogAction(action, amt)
                                 } label: {
                                     Label(
                                         appLanguage == "zh-HK" ? "一鍵即時記帳" : "Instant Log Now",
@@ -1016,7 +1122,7 @@ public struct DashboardView: View {
                                 }
                             }
                             Button {
-                                activeQuickAction = action
+                                onCustomAmountAction(action)
                             } label: {
                                 Label(
                                     appLanguage == "zh-HK" ? "自訂金額記帳..." : "Log with Custom Amount...",
@@ -1024,7 +1130,7 @@ public struct DashboardView: View {
                                 )
                             }
                             Button {
-                                directEditingQuickAction = action
+                                onEditAction(action)
                             } label: {
                                 Label(
                                     appLanguage == "zh-HK" ? "編輯此快捷鍵..." : "Edit Shortcut...",
@@ -1038,102 +1144,28 @@ public struct DashboardView: View {
             }
         }
     }
+}
 
-    private func handleQuickActionTap(_ action: QuickActionItem) {
-        if action.shouldInstantLog, let amt = action.defaultAmount, amt > 0 {
-            performInstantQuickAction(action, amount: amt)
-        } else {
-            activeQuickAction = action
-        }
+public struct DashboardRecentTransactionsView: View {
+    public let transactions: [TransactionItem]
+    public let defaultCurrency: String
+    public let appLanguage: String
+    public let onSelectTransaction: (TransactionItem) -> Void
+
+    public init(
+        transactions: [TransactionItem],
+        defaultCurrency: String,
+        appLanguage: String,
+        onSelectTransaction: @escaping (TransactionItem) -> Void
+    ) {
+        self.transactions = transactions
+        self.defaultCurrency = defaultCurrency
+        self.appLanguage = appLanguage
+        self.onSelectTransaction = onSelectTransaction
     }
 
-    private func performInstantQuickAction(_ action: QuickActionItem, amount: Double) {
-        let resolvedCategory: CategoryItem? = {
-            if !action.defaultCategoryName.isEmpty {
-                if let match = allCategories.first(where: {
-                    $0.name.localizedCaseInsensitiveCompare(action.defaultCategoryName) == .orderedSame ||
-                    $0.name.localizedCaseInsensitiveContains(action.defaultCategoryName)
-                }) {
-                    return match
-                }
-            }
-            return allCategories.first
-        }()
-
-        let resolvedMethod: PaymentMethodItem? = {
-            if !action.defaultPaymentMethodName.isEmpty {
-                if let match = allAccounts.first(where: {
-                    $0.name.localizedCaseInsensitiveCompare(action.defaultPaymentMethodName) == .orderedSame ||
-                    $0.name.localizedCaseInsensitiveContains(action.defaultPaymentMethodName)
-                }) {
-                    return match
-                }
-            }
-            return allAccounts.first
-        }()
-
-        let merch = action.defaultMerchant.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? action.title
-            : action.defaultMerchant
-
-        let resolvedToMethod: PaymentMethodItem? = {
-            guard action.transactionType == .transfer else { return nil }
-            let destName = action.toPaymentMethodName ?? "Octopus"
-            return allAccounts.first(where: { $0.name.localizedCaseInsensitiveContains(destName) })
-        }()
-
-        let finalMerch: String = {
-            if action.transactionType == .transfer {
-                return String(format: "%@ → %@", resolvedMethod?.name ?? "Account", resolvedToMethod?.name ?? "Octopus")
-            }
-            return merch
-        }()
-
-        let newTx = TransactionItem(
-            timestamp: Date(),
-            amount: amount,
-            currency: defaultCurrency,
-            merchant: finalMerch,
-            notes: action.transactionType == .transfer ? "1-Tap Octopus Top-Up" : "1-Tap Quick Action",
-            type: action.transactionType,
-            category: action.transactionType == .transfer ? nil : resolvedCategory,
-            paymentMethod: resolvedMethod,
-            toPaymentMethod: resolvedToMethod,
-            isExcludedFromBudget: false
-        )
-
-        modelContext.insert(newTx)
-        try? modelContext.save()
-        AccountBalanceManager.shared.recalculateBalances(context: modelContext)
-        recomputeMetrics(forceSyncWidget: true)
-
-        #if canImport(UIKit)
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(.success)
-        #endif
-
-        let sign = action.transactionType == .income ? "+" : "-"
-        withAnimation(.spring(response: 0.3)) {
-            lastInstantLoggedTransaction = newTx
-            instantLogBannerText = String(format: "%@%@ %.2f • %@", sign, defaultCurrency, amount, merch)
-        }
-    }
-
-    private func undoLastInstantLog() {
-        guard let tx = lastInstantLoggedTransaction else { return }
-        modelContext.delete(tx)
-        try? modelContext.save()
-        AccountBalanceManager.shared.recalculateBalances(context: modelContext)
-        recomputeMetrics(forceSyncWidget: true)
-        withAnimation(.easeOut(duration: 0.2)) {
-            lastInstantLoggedTransaction = nil
-            instantLogBannerText = nil
-        }
-    }
-
-    // MARK: - 4. Recent Transactions List
-    @ViewBuilder
-    private var recentTransactionsSection: some View {
+    public var body: some View {
+        let recentSlice = Array(transactions.prefix(6))
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(L10n.tr("Recent Transactions", lang: appLanguage))
@@ -1143,7 +1175,7 @@ public struct DashboardView: View {
                 Spacer()
             }
             
-            if transactions.isEmpty {
+            if recentSlice.isEmpty {
                 VStack(spacing: 8) {
                     Text(L10n.tr("No transactions recorded yet.", lang: appLanguage))
                         .font(.subheadline)
@@ -1156,9 +1188,9 @@ public struct DashboardView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
                 VStack(spacing: 0) {
-                    ForEach(transactions.prefix(6)) { item in
+                    ForEach(recentSlice) { item in
                         Button {
-                            selectedItemToEdit = item
+                            onSelectTransaction(item)
                         } label: {
                             HStack(spacing: 12) {
                                 let icon = item.type == .transfer ? "arrow.left.arrow.right" : (item.category?.iconName ?? "tag.fill")
@@ -1203,7 +1235,7 @@ public struct DashboardView: View {
                                 Spacer()
                                 
                                 if item.type == .transfer {
-                                    Text(String(format: "%@ %.2f", defaultCurrency, item.amount))
+                                    Text(String(format: "⇄ %@ %.2f", defaultCurrency, item.amount))
                                         .font(.callout.weight(.semibold))
                                         .foregroundStyle(Color.orange)
                                         .lineLimit(1)
@@ -1219,7 +1251,7 @@ public struct DashboardView: View {
                         }
                         .buttonStyle(.plain)
                         
-                        if item.id != transactions.prefix(6).last?.id {
+                        if item.id != recentSlice.last?.id {
                             Divider()
                                 .padding(.leading, 62)
                         }
@@ -1228,6 +1260,447 @@ public struct DashboardView: View {
                 .background(Color(.secondarySystemGroupedBackground))
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
+            }
+        }
+    }
+}
+
+public struct QuickActionItem: Identifiable, Codable, Equatable {
+    public var id: String
+    public var title: String
+    public var icon: String
+    public var colorHex: String
+    public var defaultMerchant: String
+    public var defaultCategoryName: String
+    public var defaultPaymentMethodName: String
+    public var defaultAmount: Double?
+    public var transactionTypeRaw: String?
+    public var isInstantOneTap: Bool?
+    public var toPaymentMethodName: String?
+    
+    public var transactionType: TransactionType {
+        get { TransactionType(rawValue: transactionTypeRaw ?? "Expense") ?? .expense }
+        set { transactionTypeRaw = newValue.rawValue }
+    }
+    
+    public var shouldInstantLog: Bool {
+        guard let amt = defaultAmount, amt > 0 else { return false }
+        return isInstantOneTap ?? true
+    }
+    
+    public init(
+        id: String = UUID().uuidString,
+        title: String,
+        icon: String = "plus.circle.fill",
+        colorHex: String = "#007AFF",
+        defaultMerchant: String = "",
+        defaultCategoryName: String = "",
+        defaultPaymentMethodName: String = "",
+        defaultAmount: Double? = nil,
+        transactionType: TransactionType = .expense,
+        isInstantOneTap: Bool? = nil,
+        toPaymentMethodName: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.icon = icon
+        self.colorHex = colorHex
+        self.defaultMerchant = defaultMerchant
+        self.defaultCategoryName = defaultCategoryName
+        self.defaultPaymentMethodName = defaultPaymentMethodName
+        self.defaultAmount = defaultAmount
+        self.transactionTypeRaw = transactionType.rawValue
+        self.isInstantOneTap = isInstantOneTap ?? (defaultAmount != nil && (defaultAmount ?? 0) > 0)
+        self.toPaymentMethodName = toPaymentMethodName
+    }
+    
+    public static let defaultItems: [QuickActionItem] = [
+        QuickActionItem(id: "1", title: "Add Expense", icon: "plus.circle.fill", colorHex: "#007AFF", defaultMerchant: "", defaultCategoryName: "", defaultPaymentMethodName: "CUHK Credit Card", defaultAmount: nil, transactionType: .expense, isInstantOneTap: false),
+        QuickActionItem(id: "2", title: "Octopus MTR", icon: "wave.3.forward.circle.fill", colorHex: "#FF9500", defaultMerchant: "MTR", defaultCategoryName: "Octopus", defaultPaymentMethodName: "Octopus", defaultAmount: 5.60, transactionType: .expense, isInstantOneTap: true),
+        QuickActionItem(id: "3", title: "Tram / Bus", icon: "tram.fill", colorHex: "#007AFF", defaultMerchant: "Transit", defaultCategoryName: "Octopus", defaultPaymentMethodName: "Octopus", defaultAmount: 2.20, transactionType: .expense, isInstantOneTap: true),
+        QuickActionItem(id: "4", title: "Coffee/Meal", icon: "cup.and.saucer.fill", colorHex: "#34C759", defaultMerchant: "Coffee / Meal", defaultCategoryName: "Dining", defaultPaymentMethodName: "CUHK Credit Card", defaultAmount: 45.00, transactionType: .expense, isInstantOneTap: true),
+        QuickActionItem(id: "5", title: "Quick Income", icon: "arrow.down.left.circle.fill", colorHex: "#34C759", defaultMerchant: "Income", defaultCategoryName: "Salary", defaultPaymentMethodName: "Bank Transfer / FPS", defaultAmount: 500.00, transactionType: .income, isInstantOneTap: true),
+        QuickActionItem(id: "6", title: "Top Up Octopus", icon: "arrow.triangle.2.circlepath.circle.fill", colorHex: "#FF9500", defaultMerchant: "Octopus Auto Top-Up", defaultCategoryName: "", defaultPaymentMethodName: "CUHK Credit Card", defaultAmount: 250.00, transactionType: .transfer, isInstantOneTap: true, toPaymentMethodName: "Octopus")
+    ]
+}
+
+// MARK: - Customize Quick Actions Sheet
+public struct CustomizeQuickActionsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Binding var quickActionsJson: String
+    let lang: String
+
+    @State private var items: [QuickActionItem] = []
+    @State private var editingItem: QuickActionItem? = nil
+
+    public init(quickActionsJson: Binding<String>, currentActions: [QuickActionItem], lang: String) {
+        self._quickActionsJson = quickActionsJson
+        self._items = State(initialValue: currentActions)
+        self.lang = lang
+    }
+
+    public var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    ForEach(items) { item in
+                        Button {
+                            editingItem = item
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: item.icon)
+                                    .font(.title3)
+                                    .foregroundStyle(Color(hex: item.colorHex))
+                                    .frame(width: 32)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title)
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+
+                                    HStack(spacing: 4) {
+                                        if let amt = item.defaultAmount, amt > 0 {
+                                            Text(String(format: "⚡ %@%.1f", item.transactionType == .income ? "+" : "-", amt))
+                                                .foregroundStyle(item.transactionType == .income ? .green : .blue)
+                                                .fontWeight(.semibold)
+                                        }
+                                        if !item.defaultMerchant.isEmpty {
+                                            Text("• \(item.defaultMerchant)")
+                                        }
+                                        if !item.defaultCategoryName.isEmpty {
+                                            Text("• \(item.defaultCategoryName)")
+                                        }
+                                        if !item.defaultPaymentMethodName.isEmpty {
+                                            Text("• \(item.defaultPaymentMethodName)")
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "pencil")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.blue)
+                                    .padding(6)
+                                    .background(Color.blue.opacity(0.12))
+                                    .clipShape(Circle())
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                withAnimation {
+                                    items.removeAll(where: { $0.id == item.id })
+                                    saveChanges()
+                                }
+                            } label: {
+                                Label(L10n.tr("Delete", lang: lang), systemImage: "trash")
+                            }
+                        }
+                        .contextMenu {
+                            Button {
+                                editingItem = item
+                            } label: {
+                                Label(L10n.tr("Edit", lang: lang), systemImage: "pencil")
+                            }
+
+                            Button(role: .destructive) {
+                                withAnimation {
+                                    items.removeAll(where: { $0.id == item.id })
+                                    saveChanges()
+                                }
+                            } label: {
+                                Label(L10n.tr("Delete", lang: lang), systemImage: "trash")
+                            }
+                        }
+                    }
+                    .onDelete { indexSet in
+                        items.remove(atOffsets: indexSet)
+                        saveChanges()
+                    }
+                    .onMove { indices, newOffset in
+                        items.move(fromOffsets: indices, toOffset: newOffset)
+                        saveChanges()
+                    }
+                } header: {
+                    Text(L10n.tr("Quick Actions", lang: lang)).lineLimit(1)
+                } footer: {
+                    Text(lang == "zh-HK" ? "點擊任何快捷鍵即可編輯詳情。向左滑動或在編輯頁面可直接刪除，點擊右上角「排序」可調整先後順序。" : "Tap any shortcut to edit its details. Swipe left or open edit sheet to delete. Use Edit above to reorder.").lineLimit(2)
+                }
+
+                Section {
+                    Button {
+                        let newItem = QuickActionItem(
+                            title: "New Action",
+                            icon: "tag.fill",
+                            colorHex: "#007AFF"
+                        )
+                        items.append(newItem)
+                        editingItem = newItem
+                        saveChanges()
+                    } label: {
+                        Label(L10n.tr("New Shortcut", lang: lang), systemImage: "plus.circle.fill")
+                            .foregroundStyle(.blue)
+                            .lineLimit(1)
+                    }
+
+                    Button(role: .destructive) {
+                        items = QuickActionItem.defaultItems
+                        saveChanges()
+                    } label: {
+                        Label(L10n.tr("Reset Defaults", lang: lang), systemImage: "arrow.counterclockwise")
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .navigationTitle(L10n.tr("Quick Actions", lang: lang))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    EditButton()
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.tr("Done", lang: lang)) {
+                        saveChanges()
+                        dismiss()
+                    }
+                    .bold()
+                }
+            }
+            .sheet(item: $editingItem) { item in
+                EditQuickActionSheet(
+                    item: item,
+                    lang: lang,
+                    onSave: { updated in
+                        if let index = items.firstIndex(where: { $0.id == updated.id }) {
+                            items[index] = updated
+                            saveChanges()
+                        }
+                    },
+                    onDelete: { toDelete in
+                        items.removeAll(where: { $0.id == toDelete.id })
+                        saveChanges()
+                    }
+                )
+            }
+        }
+    }
+
+    private func saveChanges() {
+        if let data = try? AppSerializationManager.shared.jsonEncoder.encode(items),
+           let str = String(data: data, encoding: .utf8) {
+            quickActionsJson = str
+        }
+    }
+}
+
+// MARK: - Edit Quick Action Sheet (With 1-Tap Expense / Income / Transfer & Fixed Amount)
+public struct EditQuickActionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Query(sort: \CategoryItem.name) private var categories: [CategoryItem]
+    @Query(sort: \PaymentMethodItem.name) private var paymentMethods: [PaymentMethodItem]
+    @AppStorage("default_currency") private var defaultCurrency: String = "HKD"
+
+    @State private var item: QuickActionItem
+    let lang: String
+    let onSave: (QuickActionItem) -> Void
+    var onDelete: ((QuickActionItem) -> Void)? = nil
+
+    @State private var title: String
+    @State private var selectedIcon: String
+    @State private var selectedColor: String
+    @State private var transactionType: TransactionType
+    @State private var amountString: String
+    @State private var isInstantOneTap: Bool
+    @State private var merchant: String
+    @State private var categoryName: String
+    @State private var paymentMethodName: String
+
+    let availableIcons = [
+        "plus.circle.fill", "wave.3.forward.circle.fill", "cup.and.saucer.fill",
+        "cart.fill", "fork.knife", "tram.fill", "bag.fill", "fuelpump.fill",
+        "film.fill", "heart.fill", "bolt.fill", "banknote.fill",
+        "arrow.down.left.circle.fill", "arrow.triangle.2.circlepath.circle.fill"
+    ]
+
+    let availableColors = [
+        "#007AFF", "#FF9500", "#34C759", "#AF52DE",
+        "#FF2D55", "#5856D6", "#FF3B30", "#8E8E93"
+    ]
+
+    public init(
+        item: QuickActionItem,
+        lang: String,
+        onSave: @escaping (QuickActionItem) -> Void,
+        onDelete: ((QuickActionItem) -> Void)? = nil
+    ) {
+        self._item = State(initialValue: item)
+        self.lang = lang
+        self.onSave = onSave
+        self.onDelete = onDelete
+        self._title = State(initialValue: item.title)
+        self._selectedIcon = State(initialValue: item.icon)
+        self._selectedColor = State(initialValue: item.colorHex)
+        self._transactionType = State(initialValue: item.transactionType)
+        if let amt = item.defaultAmount, amt > 0 {
+            self._amountString = State(initialValue: String(format: "%.2f", amt))
+        } else {
+            self._amountString = State(initialValue: "")
+        }
+        self._isInstantOneTap = State(initialValue: item.isInstantOneTap ?? (item.defaultAmount != nil && (item.defaultAmount ?? 0) > 0))
+        self._merchant = State(initialValue: item.defaultMerchant)
+        self._categoryName = State(initialValue: item.defaultCategoryName)
+        self._paymentMethodName = State(initialValue: item.defaultPaymentMethodName)
+    }
+
+    public var body: some View {
+        NavigationStack {
+            Form {
+                Section(lang == "zh-HK" ? "一鍵記帳設定 (1-Tap Instant Log)" : "1-Tap Instant Logging") {
+                    Picker(lang == "zh-HK" ? "類型" : "Type", selection: $transactionType) {
+                        Text(L10n.tr("Expense", lang: lang)).tag(TransactionType.expense)
+                        Text(L10n.tr("Income", lang: lang)).tag(TransactionType.income)
+                        Text(L10n.tr("Transfer", lang: lang)).tag(TransactionType.transfer)
+                    }
+                    .pickerStyle(.segmented)
+
+                    HStack {
+                        Text(lang == "zh-HK" ? "固定金額 (\(defaultCurrency))" : "Fixed Amount (\(defaultCurrency))")
+                        Spacer()
+                        TextField(lang == "zh-HK" ? "留空則每次輸入" : "Leave blank to ask", text: $amountString)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .font(.body.bold())
+                            .foregroundStyle(transactionType == .income ? .green : .blue)
+                            .onChange(of: amountString) { _, newValue in
+                                if let val = Double(newValue), val > 0 {
+                                    isInstantOneTap = true
+                                }
+                            }
+                    }
+
+                    if let val = Double(amountString), val > 0 {
+                        Toggle(
+                            lang == "zh-HK" ? "點擊即直接記帳 (免開表單)" : "1-Tap Instant Log (Skip Form)",
+                            isOn: $isInstantOneTap
+                        )
+                    }
+                }
+
+                Section(L10n.tr("Shortcut Title", lang: lang)) {
+                    TextField("Title", text: $title)
+                        .lineLimit(1)
+                }
+
+                Section(L10n.tr("Icon & Color", lang: lang)) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 12) {
+                            ForEach(availableIcons, id: \.self) { icon in
+                                Button {
+                                    selectedIcon = icon
+                                } label: {
+                                    Image(systemName: icon)
+                                        .font(.title2)
+                                        .frame(width: 42, height: 42)
+                                        .background(selectedIcon == icon ? Color(hex: selectedColor).opacity(0.2) : Color(.tertiarySystemFill))
+                                        .foregroundStyle(selectedIcon == icon ? Color(hex: selectedColor) : .primary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 10)
+                                                .stroke(selectedIcon == icon ? Color(hex: selectedColor) : Color.clear, lineWidth: 2)
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+
+                    HStack(spacing: 12) {
+                        ForEach(availableColors, id: \.self) { colorHex in
+                            Button {
+                                selectedColor = colorHex
+                            } label: {
+                                Circle()
+                                    .fill(Color(hex: colorHex))
+                                    .frame(width: 30, height: 30)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(Color.primary, lineWidth: selectedColor == colorHex ? 2.5 : 0)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+
+                Section(lang == "zh-HK" ? "預設商戶、分類及帳戶" : "Preset Details") {
+                    TextField(L10n.tr("Preset Merchant", lang: lang), text: $merchant)
+                        .lineLimit(1)
+
+                    Picker(L10n.tr("Preset Category", lang: lang), selection: $categoryName) {
+                        Text(lang == "zh-HK" ? "預設" : "Default").tag("")
+                        ForEach(categories) { cat in
+                            Text(cat.name).tag(cat.name)
+                        }
+                    }
+
+                    Picker(L10n.tr("Preset Payment", lang: lang), selection: $paymentMethodName) {
+                        Text(lang == "zh-HK" ? "預設" : "Default").tag("")
+                        ForEach(paymentMethods) { pm in
+                            Text(pm.name).tag(pm.name)
+                        }
+                    }
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        onDelete?(item)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Label(L10n.tr("Delete", lang: lang), systemImage: "trash.fill")
+                                .foregroundStyle(.red)
+                            Spacer()
+                        }
+                    }
+                }
+            }
+            .navigationTitle(L10n.tr("Edit Shortcut", lang: lang))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.tr("Cancel", lang: lang)) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.tr("Done", lang: lang)) {
+                        var updated = item
+                        updated.title = title
+                        updated.icon = selectedIcon
+                        updated.colorHex = selectedColor
+                        updated.transactionType = transactionType
+                        if let val = Double(amountString), val > 0 {
+                            updated.defaultAmount = val
+                            updated.isInstantOneTap = isInstantOneTap
+                        } else {
+                            updated.defaultAmount = nil
+                            updated.isInstantOneTap = false
+                        }
+                        updated.defaultMerchant = merchant
+                        updated.defaultCategoryName = categoryName
+                        updated.defaultPaymentMethodName = paymentMethodName
+                        onSave(updated)
+                        dismiss()
+                    }
+                    .bold()
+                }
             }
         }
     }
