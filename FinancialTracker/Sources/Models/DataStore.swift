@@ -1,14 +1,16 @@
 //
 //  DataStore.swift
-//  FinancialTracker
+//  Worthly
 //
 
 import Foundation
 import SwiftData
 import WidgetKit
+import os
 
 public final class AppDataStore {
     public static let appGroupIdentifier = "group.com.financialtracker.app"
+    public static let logger = Logger(subsystem: "com.bryan.FinancialTracker", category: "DataStore")
     
     public static let sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -22,15 +24,19 @@ public final class AppDataStore {
         if let containerURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupIdentifier) {
             let sqliteURL = containerURL.appendingPathComponent("FinancialTracker.sqlite")
             let config = ModelConfiguration(schema: schema, url: sqliteURL, cloudKitDatabase: .none)
-            if let container = try? ModelContainer(for: schema, configurations: [config]) {
-                return container
+            do {
+                return try ModelContainer(for: schema, configurations: [config])
+            } catch {
+                logger.error("Failed to open App Group ModelContainer: \(error.localizedDescription, privacy: .public)")
             }
         }
         
         // 2. Fallback to Local App Storage if App Group is unavailable or locked
         let localConfig = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false, cloudKitDatabase: .none)
-        if let container = try? ModelContainer(for: schema, configurations: [localConfig]) {
-            return container
+        do {
+            return try ModelContainer(for: schema, configurations: [localConfig])
+        } catch {
+            logger.error("Failed to open Local ModelContainer: \(error.localizedDescription, privacy: .public)")
         }
         
         // 3. Fallback to In-Memory Container to prevent app launch crash loops
@@ -39,6 +45,16 @@ public final class AppDataStore {
             try! ModelContainer(for: schema)
         }()
     }()
+    
+    public static func saveContext(_ context: ModelContext, caller: String = #function) {
+        do {
+            if context.hasChanges {
+                try context.save()
+            }
+        } catch {
+            logger.error("SwiftData save failed in \(caller, privacy: .public): \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }
 
 // MARK: - Widget Synchronization Manager
@@ -50,12 +66,18 @@ public final class WidgetSyncManager {
     public func syncWidget(context: ModelContext? = nil) {
         let modelContext = context ?? ModelContext(AppDataStore.sharedModelContainer)
         let descriptor = FetchDescriptor<TransactionItem>()
-        let allItems = (try? modelContext.fetch(descriptor)) ?? []
+        let allItems: [TransactionItem]
+        do {
+            allItems = try modelContext.fetch(descriptor)
+        } catch {
+            AppDataStore.logger.error("WidgetSyncManager fetch failed: \(error.localizedDescription, privacy: .public)")
+            allItems = []
+        }
         
         let calendar = Calendar.current
         let now = Date()
         let thisMonthItems = allItems.filter {
-            calendar.isDate($0.timestamp, equalTo: now, toGranularity: .month) && $0.type == .expense
+            calendar.isDate($0.timestamp, equalTo: now, toGranularity: .month) && $0.type == .expense && !$0.isExcludedFromBudget
         }
         let spent = thisMonthItems.reduce(0.0) { $0 + $1.amount }
         
@@ -76,48 +98,62 @@ public final class WidgetSyncManager {
     }
 }
 
-// MARK: - Account Balance & Net Worth Manager
+// MARK: - Account Balance & Net Worth Manager (Supports Incremental & Full Recalculation)
 public final class AccountBalanceManager {
     public static let shared = AccountBalanceManager()
     private init() {}
     
-    public func recalculateBalances(context: ModelContext) {
-            let accounts = (try? context.fetch(FetchDescriptor<PaymentMethodItem>())) ?? []
-            let transactions = (try? context.fetch(FetchDescriptor<TransactionItem>())) ?? []
-            
-            // 1. Collect valid, active account IDs
-            let activeAccounts = accounts.filter { !$0.isDeleted }
-            let validAccountIds = Set(activeAccounts.map { $0.id })
-            
-            // 2. Accumulate transaction amounts per account safely
-            var accountDeltas: [UUID: Double] = [:]
-            for t in transactions {
-                guard !t.isDeleted else { continue }
-                
-                // Check source account
-                if let pm = t.paymentMethod, !pm.isDeleted, validAccountIds.contains(pm.id) {
-                    switch t.type {
-                    case .expense, .transfer:
-                        accountDeltas[pm.id, default: 0.0] -= t.amount
-                    case .income:
-                        accountDeltas[pm.id, default: 0.0] += t.amount
-                    }
-                }
-                
-                // Check destination account for transfers
-                if let toPm = t.toPaymentMethod, !toPm.isDeleted, validAccountIds.contains(toPm.id), t.type == .transfer {
-                    accountDeltas[toPm.id, default: 0.0] += t.amount
-                }
-            }
-            
-            // 3. Update balances
-            for account in activeAccounts {
-                let delta = accountDeltas[account.id] ?? 0.0
-                account.currentBalance = account.initialBalance + delta
-            }
-            
-            try? context.save()
+    /// Recalculates balances across all accounts or only a targeted subset of modified account IDs.
+    public func recalculateBalances(
+        forAccountIds targetIds: Set<UUID>? = nil,
+        context: ModelContext
+    ) {
+        let accounts: [PaymentMethodItem]
+        let transactions: [TransactionItem]
+        do {
+            accounts = try context.fetch(FetchDescriptor<PaymentMethodItem>())
+            transactions = try context.fetch(FetchDescriptor<TransactionItem>())
+        } catch {
+            AppDataStore.logger.error("AccountBalanceManager fetch failed: \(error.localizedDescription, privacy: .public)")
+            return
         }
+        
+        let activeAccounts = accounts.filter { !$0.isDeleted }
+        let targetSet = targetIds ?? Set(activeAccounts.map { $0.id })
+        guard !targetSet.isEmpty else { return }
+        
+        var accountDeltas: [UUID: Double] = [:]
+        for t in transactions {
+            guard !t.isDeleted else { continue }
+            
+            if let pm = t.paymentMethod, !pm.isDeleted, targetSet.contains(pm.id) {
+                switch t.type {
+                case .expense, .transfer:
+                    accountDeltas[pm.id, default: 0.0] -= t.amount
+                case .income:
+                    accountDeltas[pm.id, default: 0.0] += t.amount
+                }
+            }
+            
+            if let toPm = t.toPaymentMethod, !toPm.isDeleted, targetSet.contains(toPm.id), t.type == .transfer {
+                accountDeltas[toPm.id, default: 0.0] += t.amount
+            }
+        }
+        
+        var didChange = false
+        for account in activeAccounts where targetSet.contains(account.id) {
+            let newBalance = account.initialBalance + (accountDeltas[account.id] ?? 0.0)
+            if abs(account.currentBalance - newBalance) > 0.0001 {
+                account.currentBalance = newBalance
+                didChange = true
+            }
+        }
+        
+        if didChange {
+            AppDataStore.saveContext(context)
+        }
+    }
+    
     public func calculateNetWorth(accounts: [PaymentMethodItem]) -> (assets: Double, liabilities: Double, netWorth: Double) {
         var totalAssets: Double = 0.0
         var totalLiabilities: Double = 0.0
@@ -150,42 +186,39 @@ public enum AppLanguage: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Initial Setup Seeder (Seeds Default Categories & Accounts Only - No Transactions)
-    public final class SampleDataSeeder {
-        public static func seedAll(context: ModelContext) {
-            // 1. Seed Default Categories if empty
-            let catDescriptor = FetchDescriptor<CategoryItem>()
-            if (try? context.fetch(catDescriptor))?.isEmpty ?? true {
-                for def in CategoryItem.defaultCategories {
-                    let cat = CategoryItem(name: def.name, iconName: def.icon, colorHex: def.color)
-                    context.insert(cat)
-                }
+// MARK: - Default Account & Category Seeder (Seeds Default Categories & Accounts Only)
+public final class SampleDataSeeder {
+    /// Seeds the initial default categories and payment methods on first launch without creating fake transactions.
+    public static func seedAll(context: ModelContext) {
+        let catDescriptor = FetchDescriptor<CategoryItem>()
+        if (try? context.fetch(catDescriptor))?.isEmpty ?? true {
+            for def in CategoryItem.defaultCategories {
+                let cat = CategoryItem(name: def.name, iconName: def.icon, colorHex: def.color)
+                context.insert(cat)
             }
-            
-            // 2. Seed Default Accounts if empty
-            let pmDescriptor = FetchDescriptor<PaymentMethodItem>()
-            if (try? context.fetch(pmDescriptor))?.isEmpty ?? true {
-                for spec in PaymentMethodItem.defaultAccounts {
-                    let pm = PaymentMethodItem(
-                        name: spec.name,
-                        iconName: spec.icon,
-                        colorHex: spec.color,
-                        accountType: spec.type,
-                        initialBalance: spec.defaultBalance,
-                        currentBalance: spec.defaultBalance,
-                        statementDay: spec.statementDay
-                    )
-                    context.insert(pm)
-                }
-            }
-            
-            // 3. Save initial setup (0 transactions created)
-            try? context.save()
-            AccountBalanceManager.shared.recalculateBalances(context: context)
-            WidgetSyncManager.shared.syncWidget(context: context)
         }
+        
+        let pmDescriptor = FetchDescriptor<PaymentMethodItem>()
+        if (try? context.fetch(pmDescriptor))?.isEmpty ?? true {
+            for spec in PaymentMethodItem.defaultAccounts {
+                let pm = PaymentMethodItem(
+                    name: spec.name,
+                    iconName: spec.icon,
+                    colorHex: spec.color,
+                    accountType: spec.type,
+                    initialBalance: spec.defaultBalance,
+                    currentBalance: spec.defaultBalance,
+                    statementDay: spec.statementDay
+                )
+                context.insert(pm)
+            }
+        }
+        
+        AppDataStore.saveContext(context)
+        AccountBalanceManager.shared.recalculateBalances(context: context)
+        WidgetSyncManager.shared.syncWidget(context: context)
     }
-
+}
 
 // MARK: - Recurring Payment Engine (Auto-Catch-Up on Launch & Background)
 public final class RecurringPaymentManager {
@@ -194,7 +227,14 @@ public final class RecurringPaymentManager {
 
     public func processDueRecurringPayments(context: ModelContext) {
         let descriptor = FetchDescriptor<RecurringRuleItem>()
-        guard let rules = try? context.fetch(descriptor), !rules.isEmpty else { return }
+        let rules: [RecurringRuleItem]
+        do {
+            rules = try context.fetch(descriptor)
+        } catch {
+            AppDataStore.logger.error("RecurringPaymentManager fetch failed: \(error.localizedDescription, privacy: .public)")
+            return
+        }
+        guard !rules.isEmpty else { return }
 
         let now = Date()
         var didCreate = false
@@ -238,7 +278,7 @@ public final class RecurringPaymentManager {
         }
 
         if didCreate {
-            try? context.save()
+            AppDataStore.saveContext(context)
             AccountBalanceManager.shared.recalculateBalances(context: context)
             WidgetSyncManager.shared.syncWidget(context: context)
         }
