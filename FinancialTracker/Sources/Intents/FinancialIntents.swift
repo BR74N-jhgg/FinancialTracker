@@ -169,6 +169,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             )
             return .result(value: summary)
         }
+
         // 2. Standard Expense
         let resolvedPaymentMethod = resolvePaymentMethod(
             cardOrPass: cardOrPassName ?? notificationText,
@@ -206,8 +207,13 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         )
 
         context.insert(transaction)
-        try context.save()
-        postSaveHooks(context: context)
+        AppDataStore.saveContext(context)
+
+        var affectedIds = Set<UUID>()
+        if let id = resolvedPaymentMethod?.id {
+            affectedIds.insert(id)
+        }
+        postSaveHooks(context: context, affectedAccountIds: affectedIds)
 
         let methodName = resolvedPaymentMethod?.name ?? "Octopus"
         let summary = String(
@@ -271,8 +277,14 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             isExcludedFromBudget: false
         )
         context.insert(topUpTx)
-        try context.save()
-        postSaveHooks(context: context)
+        AppDataStore.saveContext(context)
+
+        // 只重算受影響的帳戶
+        var affectedIds = Set<UUID>()
+        if let id = creditCardAccount?.id { affectedIds.insert(id) }
+        if let id = octopusAccount?.id { affectedIds.insert(id) }
+
+        postSaveHooks(context: context, affectedAccountIds: affectedIds)
 
         return String(
             format: "Logged Transfer %@ %.2f: %@ → Octopus",
@@ -284,9 +296,21 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
 
     // MARK: - Post-Save Hooks
     @MainActor
-    private func postSaveHooks(context: ModelContext) {
+    private func postSaveHooks(
+        context: ModelContext,
+        affectedAccountIds: Set<UUID> = []
+    ) {
         RecurringPaymentManager.shared.processDueRecurringPayments(context: context)
-        AccountBalanceManager.shared.recalculateBalances(context: context)
+
+        if affectedAccountIds.isEmpty {
+            AccountBalanceManager.shared.recalculateBalances(context: context)
+        } else {
+            AccountBalanceManager.shared.recalculateBalances(
+                forAccountIds: affectedAccountIds,
+                context: context
+            )
+        }
+
         WidgetSyncManager.shared.syncWidget(context: context)
     }
 
