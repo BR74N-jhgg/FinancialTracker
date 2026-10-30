@@ -193,7 +193,6 @@ public struct EditTransactionView: View {
                 PaymentMethodManagementView()
             }
             .onAppear {
-                // Ensure IDs match loaded @Query objects even if name-matched across contexts
                 if selectedCategoryId == nil, let catName = item.category?.name {
                     selectedCategoryId = categories.first(where: { $0.name == catName })?.id
                 }
@@ -214,6 +213,8 @@ public struct EditTransactionView: View {
     
     private func saveChanges() {
         guard let amount = Double(amountString) else { return }
+        let previousAccountIds = Set([item.paymentMethod?.id, item.toPaymentMethod?.id].compactMap { $0 })
+        
         let resolvedCategory = categories.first(where: { $0.id == selectedCategoryId })
         let resolvedPaymentMethod = paymentMethods.first(where: { $0.id == selectedPaymentMethodId })
         let resolvedToPaymentMethod = paymentMethods.first(where: { $0.id == toPaymentMethodId })
@@ -262,21 +263,30 @@ public struct EditTransactionView: View {
                 lastProcessedDate: date,
                 category: resolvedCategory,
                 paymentMethod: resolvedPaymentMethod,
-                toPaymentMethod: resolvedToPaymentMethod,
+                toPaymentMethod: type == .transfer ? resolvedToPaymentMethod : nil,
                 isExcludedFromBudget: isExcludedFromBudget
             )
             modelContext.insert(rule)
         }
         
-        try? modelContext.save()
-        AccountBalanceManager.shared.recalculateBalances(context: modelContext)
+        AppDataStore.saveContext(modelContext)
+        let updatedAccountIds = Set([resolvedPaymentMethod?.id, type == .transfer ? resolvedToPaymentMethod?.id : nil].compactMap { $0 })
+        let affectedIds = previousAccountIds.union(updatedAccountIds)
+        AccountBalanceManager.shared.recalculateBalances(
+            forAccountIds: affectedIds.isEmpty ? nil : affectedIds,
+            context: modelContext
+        )
         WidgetSyncManager.shared.syncWidget(context: modelContext)
     }
     
     private func deleteItem() {
+        let affectedIds = Set([item.paymentMethod?.id, item.toPaymentMethod?.id].compactMap { $0 })
         modelContext.delete(item)
-        try? modelContext.save()
-        AccountBalanceManager.shared.recalculateBalances(context: modelContext)
+        AppDataStore.saveContext(modelContext)
+        AccountBalanceManager.shared.recalculateBalances(
+            forAccountIds: affectedIds.isEmpty ? nil : affectedIds,
+            context: modelContext
+        )
         WidgetSyncManager.shared.syncWidget(context: modelContext)
     }
 }

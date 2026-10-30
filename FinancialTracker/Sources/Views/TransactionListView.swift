@@ -30,97 +30,110 @@ public struct TransactionListView: View {
     public var body: some View {
         NavigationStack {
             List {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    FilterChip(title: "All", isSelected: selectedCategoryId == nil) {
-                        selectedCategoryId = nil
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        FilterChip(title: "All", isSelected: selectedCategoryId == nil) {
+                            selectedCategoryId = nil
+                        }
+                        
+                        ForEach(categories) { cat in
+                            FilterChip(title: cat.name, icon: cat.iconName, isSelected: selectedCategoryId == cat.id) {
+                                selectedCategoryId = cat.id
+                            }
+                        }
                     }
-                    
-                    ForEach(categories) { cat in
-                        FilterChip(title: cat.name, icon: cat.iconName, isSelected: selectedCategoryId == cat.id) {
-                            selectedCategoryId = cat.id
+                    .padding(.vertical, 4)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                
+                ForEach(filteredTransactions) { item in
+                    Button {
+                        selectedItemToEdit = item
+                    } label: {
+                        TransactionRowView(item: item)
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            deleteSingleItem(item)
+                        } label: {
+                            Label(L10n.tr("Delete", lang: appLanguage), systemImage: "trash.fill")
+                        }
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        Button {
+                            selectedItemToEdit = item
+                        } label: {
+                            Label(L10n.tr("Edit", lang: appLanguage), systemImage: "pencil")
+                        }
+                        .tint(.blue)
+                    }
+                    .contextMenu {
+                        Button {
+                            selectedItemToEdit = item
+                        } label: {
+                            Label("Edit Log", systemImage: "pencil")
+                        }
+                        Button(role: .destructive) {
+                            deleteSingleItem(item)
+                        } label: {
+                            Label("Delete Log", systemImage: "trash")
                         }
                     }
                 }
-                .padding(.vertical, 4)
+                .onDelete(perform: deleteItems)
             }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-            
-            ForEach(filteredTransactions) { item in
-                Button {
-                    selectedItemToEdit = item
-                } label: {
-                    TransactionRowView(item: item)
-                }
-                .buttonStyle(.plain)
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    Button(role: .destructive) {
-                        deleteSingleItem(item)
-                    } label: {
-                        Label(L10n.tr("Delete", lang: appLanguage), systemImage: "trash.fill")
-                    }
-                }
-                .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                    Button {
-                        selectedItemToEdit = item
-                    } label: {
-                        Label(L10n.tr("Edit", lang: appLanguage), systemImage: "pencil")
-                    }
-                    .tint(.blue)
-                }
-                .contextMenu {
-                    Button {
-                        selectedItemToEdit = item
-                    } label: {
-                        Label("Edit Log", systemImage: "pencil")
-                    }
-                    Button(role: .destructive) {
-                        deleteSingleItem(item)
-                    } label: {
-                        Label("Delete Log", systemImage: "trash")
-                    }
-                }
-            }
-            .onDelete(perform: deleteItems)
-        }
-        .appPullToRefresh()
-        .searchable(text: $searchText, prompt: "Search merchant, category, notes")
-                        .navigationTitle(L10n.tr("Transactions", lang: appLanguage))
+            .appPullToRefresh()
+            .searchable(text: $searchText, prompt: "Search merchant, category, notes")
+            .navigationTitle(L10n.tr("Transactions", lang: appLanguage))
             .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showingCategoryManager = true
-                } label: {
-                    Image(systemName: "slider.horizontal.3")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingCategoryManager = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                    .lineLimit(1)
                 }
-                .lineLimit(1)
             }
-        }
-        .sheet(item: $selectedItemToEdit) { item in
-            EditTransactionView(item: item)
-        }
-        .sheet(isPresented: $showingCategoryManager) {
-            CategoryManagementView()
-        }
+            .sheet(item: $selectedItemToEdit) { item in
+                EditTransactionView(item: item)
+            }
+            .sheet(isPresented: $showingCategoryManager) {
+                CategoryManagementView()
+            }
         }
     }
     
     private func deleteSingleItem(_ item: TransactionItem) {
         withAnimation {
+            let affectedIds = Set([item.paymentMethod?.id, item.toPaymentMethod?.id].compactMap { $0 })
             modelContext.delete(item)
-            try? modelContext.save()
+            AppDataStore.saveContext(modelContext)
+            AccountBalanceManager.shared.recalculateBalances(
+                forAccountIds: affectedIds.isEmpty ? nil : affectedIds,
+                context: modelContext
+            )
             WidgetSyncManager.shared.syncWidget(context: modelContext)
         }
     }
     
     private func deleteItems(offsets: IndexSet) {
         withAnimation {
+            var affectedIds = Set<UUID>()
             for index in offsets {
-                modelContext.delete(filteredTransactions[index])
+                let target = filteredTransactions[index]
+                if let pmId = target.paymentMethod?.id { affectedIds.insert(pmId) }
+                if let toId = target.toPaymentMethod?.id { affectedIds.insert(toId) }
+                modelContext.delete(target)
             }
-            try? modelContext.save()
+            AppDataStore.saveContext(modelContext)
+            AccountBalanceManager.shared.recalculateBalances(
+                forAccountIds: affectedIds.isEmpty ? nil : affectedIds,
+                context: modelContext
+            )
             WidgetSyncManager.shared.syncWidget(context: modelContext)
         }
     }
@@ -179,32 +192,32 @@ public struct TransactionRowView: View {
             }
             
             Spacer()
-                        
-                        VStack(alignment: .trailing, spacing: 2) {
-                            HStack(spacing: 2) {
-                                if item.type == .transfer {
-                                    Text("⇄")
-                                        .font(.caption.bold())
-                                        .foregroundStyle(.blue)
-                                } else {
-                                    Text(item.type == .expense ? "-" : "+")
-                                }
-                                Text(item.amount.formattedCurrency(item.currency.isEmpty ? "HKD" : item.currency))
-                            }
-                            .font(.body.bold())
-                            .foregroundStyle(item.type == .expense ? Color.primary : (item.type == .transfer ? Color.blue : Color.green))
-                            .lineLimit(1)
-                            
-                            if item.isExcludedFromBudget {
-                                Text("Reimbursable")
-                                    .font(.system(size: 9, weight: .bold))
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 1)
-                                    .background(Color.orange.opacity(0.15))
-                                    .foregroundStyle(.orange)
-                                    .clipShape(Capsule())
-                            }
-                        }
+            
+            VStack(alignment: .trailing, spacing: 2) {
+                HStack(spacing: 2) {
+                    if item.type == .transfer {
+                        Text("⇄")
+                            .font(.caption.bold())
+                            .foregroundStyle(.blue)
+                    } else {
+                        Text(item.type == .expense ? "-" : "+")
+                    }
+                    Text(item.amount.formattedCurrency(item.currency.isEmpty ? "HKD" : item.currency))
+                }
+                .font(.body.bold())
+                .foregroundStyle(item.type == .expense ? Color.primary : (item.type == .transfer ? Color.blue : Color.green))
+                .lineLimit(1)
+                
+                if item.isExcludedFromBudget {
+                    Text("Reimbursable")
+                        .font(.system(size: 9, weight: .bold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.orange.opacity(0.15))
+                        .foregroundStyle(.orange)
+                        .clipShape(Capsule())
+                }
+            }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 4)

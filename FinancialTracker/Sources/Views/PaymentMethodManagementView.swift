@@ -5,6 +5,7 @@
 
 import SwiftUI
 import SwiftData
+import os
 
 public struct PaymentMethodManagementView: View {
     @Environment(\.dismiss) private var dismiss
@@ -251,7 +252,8 @@ public struct PaymentMethodManagementView: View {
             
             // 1. Unlink any transactions referencing this account first to prevent dangling pointer crashes
             let descriptor = FetchDescriptor<TransactionItem>()
-            if let transactions = try? modelContext.fetch(descriptor) {
+            do {
+                let transactions = try modelContext.fetch(descriptor)
                 for t in transactions {
                     if t.paymentMethod?.id == targetId {
                         t.paymentMethod = nil
@@ -260,11 +262,13 @@ public struct PaymentMethodManagementView: View {
                         t.toPaymentMethod = nil
                     }
                 }
+            } catch {
+                AppDataStore.logger.error("Failed to fetch transactions during account deletion: \(error.localizedDescription, privacy: .public)")
             }
             
             // 2. Delete the account from SwiftData
             modelContext.delete(method)
-            try? modelContext.save()
+            AppDataStore.saveContext(modelContext)
             
             // 3. Recalculate remaining balances safely
             AccountBalanceManager.shared.recalculateBalances(context: modelContext)
@@ -450,6 +454,7 @@ public struct PaymentMethodEditSheet: View {
         let parsedDay = Int(statementDayString)
         let validatedDay = (parsedDay != nil && parsedDay! >= 1 && parsedDay! <= 31) ? parsedDay : nil
         
+        let targetId: UUID
         if let existing = paymentMethod {
             existing.name = trimmedName
             existing.iconName = selectedIcon
@@ -457,6 +462,7 @@ public struct PaymentMethodEditSheet: View {
             existing.accountType = accountType
             existing.initialBalance = parsedBalance
             existing.statementDay = validatedDay
+            targetId = existing.id
         } else {
             let newMethod = PaymentMethodItem(
                 name: trimmedName,
@@ -468,9 +474,10 @@ public struct PaymentMethodEditSheet: View {
                 statementDay: validatedDay
             )
             modelContext.insert(newMethod)
+            targetId = newMethod.id
         }
-        try? modelContext.save()
-        AccountBalanceManager.shared.recalculateBalances(context: modelContext)
+        AppDataStore.saveContext(modelContext)
+        AccountBalanceManager.shared.recalculateBalances(forAccountIds: [targetId], context: modelContext)
         WidgetSyncManager.shared.syncWidget(context: modelContext)
     }
 }
@@ -555,8 +562,8 @@ public struct AdjustBalanceSheet: View {
         let diff = target - account.currentBalance
         account.initialBalance += diff
         account.currentBalance = target
-        try? modelContext.save()
-        AccountBalanceManager.shared.recalculateBalances(context: modelContext)
+        AppDataStore.saveContext(modelContext)
+        AccountBalanceManager.shared.recalculateBalances(forAccountIds: [account.id], context: modelContext)
         WidgetSyncManager.shared.syncWidget(context: modelContext)
     }
 }

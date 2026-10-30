@@ -75,7 +75,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         let context = container.mainContext
         let currency = UserDefaults.standard.string(forKey: "default_currency") ?? "HKD"
 
-        // 1. Single Upfront Fetch of Accounts and Categories
+        // 1. Single Upfront Fetch of Accounts and Categories (No Duplicate Fetches or Silent try?)
         let existingMethods: [PaymentMethodItem]
         do {
             existingMethods = try context.fetch(FetchDescriptor<PaymentMethodItem>())
@@ -97,7 +97,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             .filter { !$0.isEmpty }
             .joined(separator: " | ")
 
-        // 2. Ignore $0 Entry-Gate / Card Read notifications
+        // 2. Ignore $0 Entry-Gate / Card Read notifications from Apple Wallet
         if (amount == nil || amount == 0) && MerchantRuleEngine.isZeroChargeEntryNotification(combinedAllText) {
             return .result(value: "Skipped: Entry gate / Card Read notification with no charge.")
         }
@@ -124,7 +124,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
 
         let effectiveRawMerchant = extracted.merchant ?? merchant
 
-        // 3. AAVS / Auto Top-Up
+        // 3. Check if this is an Octopus Auto Top-Up (AAVS) or Wallet reload
         if MerchantRuleEngine.isAAVSTopUp(merchant: effectiveRawMerchant, fullText: combinedAllText) {
             let summary = handleAAVSTopUp(
                 amount: positiveAmount,
@@ -135,7 +135,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return .result(value: summary)
         }
 
-        // 4. Standard Expense Flow
+        // 4. Standard Expense Flow (Passing pre-fetched arrays)
         let resolvedPaymentMethod = resolvePaymentMethod(
             cardOrPass: cardOrPassName ?? notificationText,
             merchantHint: effectiveRawMerchant,
@@ -179,10 +179,8 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         AppDataStore.saveContext(context)
 
         RecurringPaymentManager.shared.processDueRecurringPayments(context: context)
-
-        // 修正：用 Set 而唔係 Array
         if let pmId = resolvedPaymentMethod?.id {
-            AccountBalanceManager.shared.recalculateBalances(forAccountIds: Set([pmId]), context: context)
+            AccountBalanceManager.shared.recalculateBalances(forAccountIds: [pmId], context: context)
         } else {
             AccountBalanceManager.shared.recalculateBalances(context: context)
         }
@@ -200,15 +198,18 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         return .result(value: summary)
     }
 
-    // MARK: - AAVS Top-Up Handler
+    // MARK: - AAVS Top-Up Handler with Smart Credit Card Priority
     @MainActor
-    private func handleAAVSTopUp(
+    public func handleAAVSTopUp(
         amount: Double,
         currency: String,
         existingMethods: [PaymentMethodItem],
         in context: ModelContext
     ) -> String {
-        let defaultMethodName = UserDefaults.standard.string(forKey: "default_payment_method") ?? "Credit Card"
+        let aavsFundingCard = UserDefaults.standard.string(forKey: "aavs_funding_card") ?? ""
+        let defaultMethodName = !aavsFundingCard.isEmpty
+            ? aavsFundingCard
+            : (UserDefaults.standard.string(forKey: "default_payment_method") ?? "Credit Card")
         let creditCardAccount = Self.selectFundingCreditCard(
             from: existingMethods,
             defaultMethodName: defaultMethodName
@@ -233,7 +234,6 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         AppDataStore.saveContext(context)
 
         RecurringPaymentManager.shared.processDueRecurringPayments(context: context)
-
         let affectedIds = Set([creditCardAccount?.id, octopusAccount?.id].compactMap { $0 })
         if !affectedIds.isEmpty {
             AccountBalanceManager.shared.recalculateBalances(forAccountIds: affectedIds, context: context)
@@ -250,12 +250,16 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         )
     }
 
-    /// 4-tier priority for funding credit card
+    /// Selects the funding credit card for AAVS using the 4-tier priority order:
+    /// 1. User's default payment method (if it is a liability account)
+    /// 2. Any account whose name contains "Credit" or "Card"
+    /// 3. Any liability account
+    /// 4. Fallback to first available account
     public static func selectFundingCreditCard(
         from existingMethods: [PaymentMethodItem],
         defaultMethodName: String
     ) -> PaymentMethodItem? {
-        // 1. User's default payment method if it is a liability
+        // 1. User's default payment method if it is a liability account
         if !defaultMethodName.isEmpty,
            let defaultLiability = existingMethods.first(where: {
                $0.isLiability &&
@@ -279,7 +283,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
             return anyLiability
         }
 
-        // 4. Fallback
+        // 4. Fallback to first account
         return existingMethods.first
     }
 
@@ -293,7 +297,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         return "Auto-logged via Wallet"
     }
 
-    // MARK: - Category Resolver
+    // MARK: - Smart Category Matcher (Uses Pre-Fetched Categories)
     @MainActor
     private func resolveCategory(
         for merchant: String,
@@ -332,7 +336,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
         return newCategory
     }
 
-    // MARK: - Payment Method Resolver
+    // MARK: - Smart Payment Method Resolver (Uses Pre-Fetched Accounts)
     @MainActor
     private func resolvePaymentMethod(
         cardOrPass: String?,
@@ -407,7 +411,7 @@ public struct AutoLogWalletPaymentIntent: AppIntent {
     }
 }
 
-// MARK: - App Shortcuts Provider
+// MARK: - App Shortcuts Provider for Siri & Shortcuts Discovery
 public struct FinancialShortcutsProvider: AppShortcutsProvider {
     public static var appShortcuts: [AppShortcut] {
         AppShortcut(

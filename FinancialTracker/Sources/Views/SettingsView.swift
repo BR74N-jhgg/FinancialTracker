@@ -5,6 +5,7 @@
 
 import SwiftUI
 import SwiftData
+import os
 
 // Typealias so the view works whether referenced as SettingView or SettingsView
 public typealias SettingView = SettingsView
@@ -19,6 +20,7 @@ public struct SettingsView: View {
     @AppStorage("monthly_budget") private var monthlyBudget: Double = 15000.0
     @AppStorage("default_currency") private var defaultCurrency: String = "HKD"
     @AppStorage("default_payment_method") private var defaultPaymentMethod: String = "Apple Pay"
+    @AppStorage("aavs_funding_card") private var aavsFundingCard: String = ""
     @AppStorage("enable_haptics") private var enableHaptics: Bool = true
     @AppStorage("app_language") private var appLanguage: String = "en"
     @AppStorage("app_appearance") private var appAppearance: String = "system"
@@ -31,6 +33,19 @@ public struct SettingsView: View {
                 ThemeManager.shared.applyTheme(newValue)
             }
         )
+    }
+    
+    /// Candidate accounts that can fund Octopus AAVS top-ups (prefers liability/credit cards, falls back to non-Octopus accounts)
+    private var aavsCandidateAccounts: [PaymentMethodItem] {
+        let liabilities = paymentMethods.filter { !$0.isDeleted && $0.isLiability }
+        if !liabilities.isEmpty {
+            return liabilities
+        }
+        return paymentMethods.filter {
+            !$0.isDeleted &&
+            !$0.name.localizedCaseInsensitiveContains("Octopus") &&
+            !$0.name.localizedCaseInsensitiveContains("八達通")
+        }
     }
     
     @State private var budgetString: String = ""
@@ -185,6 +200,17 @@ public struct SettingsView: View {
                 }
             }
             
+            Picker(appLanguage == "zh-HK" ? "八達通自動增值信用卡 (AAVS)" : "Octopus AAVS Funding Card", selection: $aavsFundingCard) {
+                Text(appLanguage == "zh-HK" ? "自動偵測 (預設信用卡)" : "Auto (Default Credit Card)")
+                    .tag("")
+                    .lineLimit(1)
+                ForEach(aavsCandidateAccounts) { method in
+                    Label(method.name, systemImage: method.iconName)
+                        .tag(method.name)
+                        .lineLimit(1)
+                }
+            }
+            
             Toggle(L10n.tr("Haptic Feedback", lang: appLanguage), isOn: $enableHaptics)
                 .lineLimit(1)
         }
@@ -302,8 +328,13 @@ public struct SettingsView: View {
             for t in transactions {
                 modelContext.delete(t)
             }
-            try? modelContext.delete(model: TransactionItem.self)
-            try? modelContext.save()
+            do {
+                try modelContext.delete(model: TransactionItem.self)
+            } catch {
+                AppDataStore.logger.error("Failed batch TransactionItem delete: \(error.localizedDescription, privacy: .public)")
+            }
+            AppDataStore.saveContext(modelContext)
+            AccountBalanceManager.shared.recalculateBalances(context: modelContext)
             WidgetSyncManager.shared.syncWidget(context: modelContext)
         }
     }
@@ -437,7 +468,7 @@ public struct SettingsView: View {
                         }
                     } else {
                         // TAB 2: Octopus Notification Auto-Logging
-                        Section(appLanguage == "zh-HK" ? "八達通自動記帳" : "Octopus Dynamic Fare Setup") {
+                        Section(appLanguage == "zh-HK" ? "八達通動態車資全自動記帳" : "Octopus Dynamic Fare Setup") {
                             StepRow(
                                 number: "1",
                                 title: appLanguage == "zh-HK" ? "新增「通知」自動化操作" : "Choose 'Notification' Trigger",
@@ -463,7 +494,7 @@ public struct SettingsView: View {
                     
                     Section {
                         Button {
-                            if let url = URL(string: "https://www.icloud.com/shortcuts/de15d734f77f43e1869d6b0309cea038") {
+                            if let url = URL(string: "shortcuts://") {
                                 openURL(url)
                             }
                         } label: {

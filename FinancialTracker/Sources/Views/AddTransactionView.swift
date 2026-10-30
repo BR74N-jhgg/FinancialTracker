@@ -250,6 +250,7 @@ public struct AddTransactionView: View {
             finalMerchant = merchant.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         
+        let targetToAccount = type == .transfer ? toPaymentMethod : nil
         let newItem = TransactionItem(
             timestamp: date,
             amount: amount,
@@ -259,7 +260,7 @@ public struct AddTransactionView: View {
             type: type,
             category: type == .transfer ? nil : selectedCategory,
             paymentMethod: selectedPaymentMethod,
-            toPaymentMethod: type == .transfer ? toPaymentMethod : nil,
+            toPaymentMethod: targetToAccount,
             isExcludedFromBudget: type == .expense ? isExcludedFromBudget : false
         )
         modelContext.insert(newItem)
@@ -289,14 +290,18 @@ public struct AddTransactionView: View {
                 lastProcessedDate: date,
                 category: selectedCategory,
                 paymentMethod: selectedPaymentMethod,
-                toPaymentMethod: toPaymentMethod,
+                toPaymentMethod: targetToAccount,
                 isExcludedFromBudget: isExcludedFromBudget
             )
             modelContext.insert(rule)
         }
         
-        try? modelContext.save()
-        AccountBalanceManager.shared.recalculateBalances(context: modelContext)
+        AppDataStore.saveContext(modelContext)
+        let affectedIds = Set([selectedPaymentMethod?.id, targetToAccount?.id].compactMap { $0 })
+        AccountBalanceManager.shared.recalculateBalances(
+            forAccountIds: affectedIds.isEmpty ? nil : affectedIds,
+            context: modelContext
+        )
         WidgetSyncManager.shared.syncWidget(context: modelContext)
     }
 }

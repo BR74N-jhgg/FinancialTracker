@@ -85,7 +85,7 @@ public struct CategoryManagementView: View {
     private func deleteCategory(_ category: CategoryItem) {
         withAnimation {
             modelContext.delete(category)
-            try? modelContext.save()
+            AppDataStore.saveContext(modelContext)
         }
     }
     
@@ -94,7 +94,7 @@ public struct CategoryManagementView: View {
             for index in offsets {
                 modelContext.delete(categories[index])
             }
-            try? modelContext.save()
+            AppDataStore.saveContext(modelContext)
         }
     }
 }
@@ -230,6 +230,6 @@ public struct CategoryEditSheet: View {
             let newCat = CategoryItem(name: trimmedName, iconName: selectedIcon, colorHex: selectedColorHex)
             modelContext.insert(newCat)
         }
-        try? modelContext.save()
+        AppDataStore.saveContext(modelContext)
     }
 }
