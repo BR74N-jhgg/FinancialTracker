@@ -447,7 +447,8 @@ public struct SettingsView: View {
         @Environment(\.dismiss) private var dismiss
         @Environment(\.openURL) private var openURL
         @AppStorage("app_language") private var appLanguage: String = "en"
-        @AppStorage("shortcut_template_icloud_url") private var templateICloudUrl: String = "https://www.icloud.com/shortcuts/worthly-autolog"
+        @AppStorage("octopus_shortcut_template_icloud_url") private var templateICloudUrl1: String = "https://www.icloud.com/shortcuts/26d3105cd6524e2e8d1092a1bce902be"
+        @AppStorage("applepay_shortcut_template_icloud_url") private var templateICloudUrl2: String = "https://www.icloud.com/shortcuts/e7d2e52193b042d0af37cdbd677c9125"
 
         @State private var selectedTab: Int = 0 // 0: Apple Pay Cards, 1: Octopus & Transit
 
@@ -488,9 +489,9 @@ public struct SettingsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             
-                            HStack(spacing: 10) {
+                            HStack(spacing: 7) {
                                 Button {
-                                    if let url = URL(string: templateICloudUrl), UIApplication.shared.canOpenURL(url) {
+                                    if let url = URL(string: templateICloudUrl1), UIApplication.shared.canOpenURL(url) {
                                         openURL(url)
                                     } else if let shortcutsUrl = URL(string: "shortcuts://") {
                                         openURL(shortcutsUrl)
@@ -498,7 +499,43 @@ public struct SettingsView: View {
                                 } label: {
                                     HStack {
                                         Image(systemName: "arrow.down.circle.fill")
-                                        Text(appLanguage == "zh-HK" ? "下載捷徑範本" : "Install Shortcut Template")
+                                        Text(appLanguage == "zh-HK" ? "下載捷徑範本" : "Install Octopus Template")
+                                            .fontWeight(.semibold)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(Color.blue)
+                                    .foregroundStyle(.white)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                                .buttonStyle(.plain)
+                                
+                                Button {
+                                    if let shortcutsUrl = URL(string: "shortcuts://") {
+                                        openURL(shortcutsUrl)
+                                    }
+                                } label: {
+                                    Image(systemName: "arrow.up.forward.app")
+                                        .font(.body.weight(.bold))
+                                        .padding(10)
+                                        .background(Color(.tertiarySystemFill))
+                                        .foregroundStyle(.primary)
+                                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            
+                            HStack(spacing: 7) {
+                                Button {
+                                    if let url = URL(string: templateICloudUrl2), UIApplication.shared.canOpenURL(url) {
+                                        openURL(url)
+                                    } else if let shortcutsUrl = URL(string: "shortcuts://") {
+                                        openURL(shortcutsUrl)
+                                    }
+                                } label: {
+                                    HStack {
+                                        Image(systemName: "arrow.down.circle.fill")
+                                        Text(appLanguage == "zh-HK" ? "下載捷徑範本" : "Install General Template")
                                             .fontWeight(.semibold)
                                     }
                                     .frame(maxWidth: .infinity)
