@@ -6,6 +6,7 @@ public struct EditTransactionView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \CategoryItem.name) private var categories: [CategoryItem]
     @Query(sort: \PaymentMethodItem.name) private var paymentMethods: [PaymentMethodItem]
+    @Query private var recurringRules: [RecurringRuleItem]
     @AppStorage("default_currency") private var defaultCurrency: String = "HKD"
     @AppStorage("app_language") private var appLanguage: String = "en"
     
@@ -124,7 +125,7 @@ public struct EditTransactionView: View {
                     Button {
                         showingCategoryManager = true
                     } label: {
-                        Label("Manage Categories", systemImage: "tag.fill")
+                        Label(L10n.tr("Manage Categories", lang: appLanguage), systemImage: "tag.fill")
                             .lineLimit(1)
                     }
                     
@@ -136,8 +137,8 @@ public struct EditTransactionView: View {
                     }
                 }
                 
-                Section(appLanguage == "zh-HK" ? "定期重覆記帳" : "Repeating Payment") {
-                    Picker(appLanguage == "zh-HK" ? "週期" : "Repeat", selection: $recurrence) {
+                Section(L10n.tr("Repeating Payment", lang: appLanguage)) {
+                    Picker(L10n.tr("Repeat", lang: appLanguage), selection: $recurrence) {
                         ForEach(RecurrenceFrequency.allCases, id: \.self) { freq in
                             Text(L10n.tr(freq.rawValue, lang: appLanguage)).tag(freq)
                         }
@@ -199,6 +200,11 @@ public struct EditTransactionView: View {
                 if selectedPaymentMethodId == nil, let pmName = item.paymentMethod?.name {
                     selectedPaymentMethodId = paymentMethods.first(where: { $0.name == pmName })?.id
                 }
+                // Pre-load linked recurring rule frequency if this transaction is attached to a rule (9.1-3)
+                if let rId = item.ruleId,
+                   let linkedRule = recurringRules.first(where: { !$0.isDeleted && $0.id == rId }) {
+                    recurrence = linkedRule.recurrenceFrequency
+                }
             }
         }
     }
@@ -238,6 +244,11 @@ public struct EditTransactionView: View {
         item.timestamp = date
         item.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         
+        // Update linked RecurringRuleItem in-place or create/remove without duplicating (9.1-3)
+        let existingRule = item.ruleId.flatMap { rId in
+            recurringRules.first(where: { !$0.isDeleted && $0.id == rId })
+        }
+        
         if recurrence != .never {
             let calendar = Calendar.current
             let nextDue: Date = {
@@ -253,20 +264,39 @@ public struct EditTransactionView: View {
                 }
             }()
             
-            let rule = RecurringRuleItem(
-                title: item.merchant,
-                amount: amount,
-                currency: defaultCurrency,
-                type: type,
-                recurrenceFrequency: recurrence,
-                nextDueDate: nextDue,
-                lastProcessedDate: date,
-                category: resolvedCategory,
-                paymentMethod: resolvedPaymentMethod,
-                toPaymentMethod: type == .transfer ? resolvedToPaymentMethod : nil,
-                isExcludedFromBudget: isExcludedFromBudget
-            )
-            modelContext.insert(rule)
+            let ruleTitle = item.merchant.isEmpty ? (resolvedCategory?.name ?? "Recurring") : item.merchant
+            if let existing = existingRule {
+                let freqChanged = existing.recurrenceFrequency != recurrence
+                existing.title = ruleTitle
+                existing.amount = amount
+                existing.currency = defaultCurrency
+                existing.type = type
+                existing.recurrenceFrequency = recurrence
+                existing.nextDueDate = freqChanged ? nextDue : max(existing.nextDueDate, nextDue)
+                existing.category = type == .transfer ? nil : resolvedCategory
+                existing.paymentMethod = resolvedPaymentMethod
+                existing.toPaymentMethod = type == .transfer ? resolvedToPaymentMethod : nil
+                existing.isExcludedFromBudget = type == .expense ? isExcludedFromBudget : false
+            } else {
+                let rule = RecurringRuleItem(
+                    title: ruleTitle,
+                    amount: amount,
+                    currency: defaultCurrency,
+                    type: type,
+                    recurrenceFrequency: recurrence,
+                    nextDueDate: nextDue,
+                    lastProcessedDate: date,
+                    category: type == .transfer ? nil : resolvedCategory,
+                    paymentMethod: resolvedPaymentMethod,
+                    toPaymentMethod: type == .transfer ? resolvedToPaymentMethod : nil,
+                    isExcludedFromBudget: type == .expense ? isExcludedFromBudget : false
+                )
+                modelContext.insert(rule)
+                item.ruleId = rule.id
+            }
+        } else if let existing = existingRule {
+            modelContext.delete(existing)
+            item.ruleId = nil
         }
         
         AppDataStore.saveContext(modelContext)

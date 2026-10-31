@@ -250,20 +250,26 @@ public struct PaymentMethodManagementView: View {
         withAnimation {
             let targetId = method.id
             
-            // 1. Unlink any transactions referencing this account first to prevent dangling pointer crashes
-            let descriptor = FetchDescriptor<TransactionItem>()
+            // 1. Unlink transactions and pause recurring rules referencing this account
             do {
-                let transactions = try modelContext.fetch(descriptor)
+                let transactions = try modelContext.fetch(FetchDescriptor<TransactionItem>())
                 for t in transactions {
-                    if t.paymentMethod?.id == targetId {
-                        t.paymentMethod = nil
+                    if t.paymentMethod?.id == targetId { t.paymentMethod = nil }
+                    if t.toPaymentMethod?.id == targetId { t.toPaymentMethod = nil }
+                }
+                let rules = try modelContext.fetch(FetchDescriptor<RecurringRuleItem>())
+                for r in rules {
+                    if r.paymentMethod?.id == targetId {
+                        r.paymentMethod = nil
+                        r.isPaused = true
                     }
-                    if t.toPaymentMethod?.id == targetId {
-                        t.toPaymentMethod = nil
+                    if r.toPaymentMethod?.id == targetId {
+                        r.toPaymentMethod = nil
+                        r.isPaused = true
                     }
                 }
             } catch {
-                AppDataStore.logger.error("Failed to fetch transactions during account deletion: \(error.localizedDescription, privacy: .public)")
+                AppDataStore.logger.error("Failed to unlink records during account deletion: \(error.localizedDescription, privacy: .public)")
             }
             
             // 2. Delete the account from SwiftData

@@ -5,6 +5,8 @@
 
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+import UIKit
 import os
 
 // Typealias so the view works whether referenced as SettingView or SettingsView
@@ -15,6 +17,7 @@ public struct SettingsView: View {
     @Query private var transactions: [TransactionItem]
     @Query private var categories: [CategoryItem]
     @Query(sort: \PaymentMethodItem.name) private var paymentMethods: [PaymentMethodItem]
+    @Query(sort: \RecurringRuleItem.nextDueDate) private var recurringRules: [RecurringRuleItem]
     
     // Persistent user preferences stored on device
     @AppStorage("monthly_budget") private var monthlyBudget: Double = 15000.0
@@ -52,6 +55,11 @@ public struct SettingsView: View {
     @State private var showingResetAlert = false
     @State private var showingSampleDataAlert = false
     @State private var showingShortcutsInfo = false
+    @State private var sharedFileItem: SharedExportFile? = nil
+    @State private var showingBackupImporter = false
+    @State private var backupAlertTitle = ""
+    @State private var backupAlertMessage = ""
+    @State private var showingBackupAlert = false
     
     @FocusState private var isBudgetFocused: Bool
     
@@ -89,6 +97,9 @@ public struct SettingsView: View {
             .onChange(of: appAppearance) { _, newValue in
                 ThemeManager.shared.applyTheme(newValue)
             }
+            .onChange(of: defaultCurrency) { _, _ in
+                WidgetSyncManager.shared.syncWidget(context: modelContext)
+            }
             .onChange(of: budgetString) { _, newValue in
                 if let val = Double(newValue), val > 0 {
                     monthlyBudget = val
@@ -115,8 +126,26 @@ public struct SettingsView: View {
             } message: {
                 Text("Added 38 realistic transactions across 8 categories, 5 payment methods, and 7 weekdays for testing.")
             }
+            .alert(
+                backupAlertTitle,
+                isPresented: $showingBackupAlert
+            ) {
+                Button(L10n.tr("OK", lang: appLanguage), role: .cancel) { }
+            } message: {
+                Text(backupAlertMessage)
+            }
             .sheet(isPresented: $showingShortcutsInfo) {
                 ShortcutsGuideSheet()
+            }
+            .sheet(item: $sharedFileItem) { item in
+                ActivityShareSheet(activityItems: [item.url])
+            }
+            .fileImporter(
+                isPresented: $showingBackupImporter,
+                allowedContentTypes: [.json],
+                allowsMultipleSelection: false
+            ) { result in
+                handleBackupImport(result: result)
             }
         }
     }
@@ -246,6 +275,21 @@ public struct SettingsView: View {
                         .lineLimit(1)
                 }
             }
+            
+            NavigationLink {
+                RecurringManagementView()
+            } label: {
+                HStack {
+                    Label(L10n.tr("Recurring & Subscriptions", lang: appLanguage), systemImage: "repeat.circle.fill")
+                        .lineLimit(1)
+                    Spacer()
+                    let activeCount = recurringRules.filter { !$0.isDeleted && !$0.isPaused }.count
+                    Text("\(activeCount)")
+                        .foregroundStyle(.secondary)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                }
+            }
         }
     }
     
@@ -278,6 +322,31 @@ public struct SettingsView: View {
                     .lineLimit(1)
             }
             
+            Button {
+                if let url = BackupManager.shared.writeCSVExportFile(transactions: transactions) {
+                    sharedFileItem = SharedExportFile(url: url)
+                }
+            } label: {
+                Label(L10n.tr("Export Transactions (CSV)", lang: appLanguage), systemImage: "tablecells.badge.ellipsis")
+                    .lineLimit(1)
+            }
+            
+            Button {
+                if let url = BackupManager.shared.writeJSONBackupFile(context: modelContext) {
+                    sharedFileItem = SharedExportFile(url: url)
+                }
+            } label: {
+                Label(L10n.tr("Backup Data (JSON)", lang: appLanguage), systemImage: "externaldrive.badge.timemachine")
+                    .lineLimit(1)
+            }
+            
+            Button {
+                showingBackupImporter = true
+            } label: {
+                Label(L10n.tr("Restore from Backup (JSON)", lang: appLanguage), systemImage: "arrow.down.doc.fill")
+                    .lineLimit(1)
+            }
+            
             Button(role: .destructive) {
                 showingResetAlert = true
             } label: {
@@ -300,8 +369,8 @@ public struct SettingsView: View {
             HStack {
                 Text(L10n.tr("Version", lang: appLanguage)).lineLimit(1)
                 Spacer()
-                let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.1"
-                let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+                let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.3"
+                let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "36"
                 Text("\(appVersion) (\(buildNumber))")
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -336,6 +405,40 @@ public struct SettingsView: View {
             AppDataStore.saveContext(modelContext)
             AccountBalanceManager.shared.recalculateBalances(context: modelContext)
             WidgetSyncManager.shared.syncWidget(context: modelContext)
+        }
+    }
+    
+    private func handleBackupImport(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let fileURL = urls.first else { return }
+            let didAccess = fileURL.startAccessingSecurityScopedResource()
+            defer {
+                if didAccess {
+                    fileURL.stopAccessingSecurityScopedResource()
+                }
+            }
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let summary = try BackupManager.shared.importJSONData(data, context: modelContext)
+                backupAlertTitle = L10n.tr("Restore Completed", lang: appLanguage)
+                if appLanguage.hasPrefix("zh") {
+                    backupAlertMessage = "已成功還原 \(summary.transactionsRestored) 筆交易、\(summary.accountsRestored) 個帳戶、\(summary.categoriesRestored) 個分類及 \(summary.rulesRestored) 項定期付款規則。"
+                } else {
+                    backupAlertMessage = "Restored \(summary.transactionsRestored) transactions, \(summary.accountsRestored) accounts, \(summary.categoriesRestored) categories, and \(summary.rulesRestored) recurring rules."
+                }
+                showingBackupAlert = true
+            } catch {
+                AppDataStore.logger.error("Backup import failed: \(error.localizedDescription, privacy: .public)")
+                backupAlertTitle = L10n.tr("Backup Error", lang: appLanguage)
+                backupAlertMessage = error.localizedDescription
+                showingBackupAlert = true
+            }
+        case .failure(let error):
+            AppDataStore.logger.error("File importer failed: \(error.localizedDescription, privacy: .public)")
+            backupAlertTitle = L10n.tr("Backup Error", lang: appLanguage)
+            backupAlertMessage = error.localizedDescription
+            showingBackupAlert = true
         }
     }
     
@@ -549,5 +652,385 @@ public struct SettingsView: View {
             }
             .padding(.vertical, 2)
         }
+    }
+}
+
+// MARK: - Share Sheet Helper for CSV & JSON Export (Phase 1: 9.1-5)
+public struct SharedExportFile: Identifiable {
+    public let id = UUID()
+    public let url: URL
+}
+
+public struct ActivityShareSheet: UIViewControllerRepresentable {
+    public let activityItems: [Any]
+    
+    public func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+    
+    public func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+}
+
+// MARK: - Recurring & Subscriptions Management Screen (Phase 1: 9.1-2)
+public struct RecurringManagementView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \RecurringRuleItem.nextDueDate) private var rules: [RecurringRuleItem]
+    @AppStorage("default_currency") private var defaultCurrency: String = "HKD"
+    @AppStorage("app_language") private var appLanguage: String = "en"
+    
+    @State private var showingAddRule = false
+    @State private var ruleToEdit: RecurringRuleItem? = nil
+    
+    public init() {}
+    
+    private var activeRules: [RecurringRuleItem] {
+        rules.filter { !$0.isDeleted && !$0.isPaused && $0.recurrenceFrequency != .never }
+    }
+    
+    private var pausedRules: [RecurringRuleItem] {
+        rules.filter { !$0.isDeleted && ($0.isPaused || $0.recurrenceFrequency == .never) }
+    }
+    
+    /// Estimated monthly fixed expense total across active rules
+    private var monthlyFixedEstimate: Double {
+        activeRules.filter { $0.type == .expense }.reduce(0.0) { acc, rule in
+            switch rule.recurrenceFrequency {
+            case .weekly: return acc + (rule.amount * 52.0 / 12.0)
+            case .monthly: return acc + rule.amount
+            case .yearly: return acc + (rule.amount / 12.0)
+            case .never: return acc
+            }
+        }
+    }
+    
+    public var body: some View {
+        List {
+            // Monthly Fixed Expense Summary Card
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L10n.tr("Monthly Fixed Estimate", lang: appLanguage))
+                        .font(.caption.bold())
+                        .foregroundStyle(.secondary)
+                    
+                    Text(monthlyFixedEstimate.formattedCurrency(defaultCurrency))
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                    
+                    HStack(spacing: 14) {
+                        Label("\(activeRules.count) \(L10n.tr("Active", lang: appLanguage))", systemImage: "checkmark.circle.fill")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.green)
+                        
+                        if !pausedRules.isEmpty {
+                            Label("\(pausedRules.count) \(L10n.tr("Paused", lang: appLanguage))", systemImage: "pause.circle.fill")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            
+            if activeRules.isEmpty && pausedRules.isEmpty {
+                Section {
+                    ContentUnavailableView(
+                        L10n.tr("No Recurring Rules Yet", lang: appLanguage),
+                        systemImage: "repeat.circle",
+                        description: Text(L10n.tr("Add a repeating payment when logging a transaction or tap '+' to create one.", lang: appLanguage))
+                    )
+                    .padding(.vertical, 20)
+                }
+            } else {
+                if !activeRules.isEmpty {
+                    Section(L10n.tr("Active Subscriptions", lang: appLanguage)) {
+                        ForEach(activeRules) { rule in
+                            ruleRow(for: rule)
+                        }
+                    }
+                }
+                
+                if !pausedRules.isEmpty {
+                    Section(L10n.tr("Paused", lang: appLanguage)) {
+                        ForEach(pausedRules) { rule in
+                            ruleRow(for: rule)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(L10n.tr("Recurring & Subscriptions", lang: appLanguage))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    showingAddRule = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $showingAddRule) {
+            RecurringRuleEditSheet(rule: nil)
+        }
+        .sheet(item: $ruleToEdit) { rule in
+            RecurringRuleEditSheet(rule: rule)
+        }
+    }
+    
+    @ViewBuilder
+    private func ruleRow(for rule: RecurringRuleItem) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: rule.category?.iconName ?? "repeat.circle.fill")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(Color(hex: rule.category?.colorHex ?? "#007AFF").opacity(rule.isPaused ? 0.45 : 1.0))
+                .clipShape(Circle())
+            
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(rule.title.isEmpty ? "Recurring" : rule.title)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(rule.isPaused ? .secondary : .primary)
+                        .lineLimit(1)
+                    
+                    Text(L10n.tr(rule.recurrenceFrequency.rawValue, lang: appLanguage))
+                        .font(.caption2.bold())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color(.tertiarySystemFill))
+                        .clipShape(Capsule())
+                }
+                
+                HStack(spacing: 6) {
+                    if let pm = rule.paymentMethod {
+                        Text(pm.name)
+                            .lineLimit(1)
+                        Text("•")
+                    }
+                    Text("\(L10n.tr("Next Due", lang: appLanguage)): \(rule.nextDueDate, format: .dateTime.year().month(.abbreviated).day())")
+                        .lineLimit(1)
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            
+            Spacer()
+            
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(rule.amount.formattedCurrency(rule.currency.isEmpty ? defaultCurrency : rule.currency))
+                    .font(.callout.bold())
+                    .foregroundStyle(rule.isPaused ? .secondary : (rule.type == .income ? .green : .primary))
+                    .lineLimit(1)
+                
+                Button {
+                    togglePause(rule)
+                } label: {
+                    Text(rule.isPaused ? L10n.tr("Resume", lang: appLanguage) : L10n.tr("Pause", lang: appLanguage))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(rule.isPaused ? .green : .orange)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            ruleToEdit = rule
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                deleteRule(rule)
+            } label: {
+                Label(L10n.tr("Delete", lang: appLanguage), systemImage: "trash.fill")
+            }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                togglePause(rule)
+            } label: {
+                Label(
+                    rule.isPaused ? L10n.tr("Resume", lang: appLanguage) : L10n.tr("Pause", lang: appLanguage),
+                    systemImage: rule.isPaused ? "play.fill" : "pause.fill"
+                )
+            }
+            .tint(rule.isPaused ? .green : .orange)
+        }
+    }
+    
+    private func togglePause(_ rule: RecurringRuleItem) {
+        withAnimation {
+            rule.isPaused.toggle()
+            AppDataStore.saveContext(modelContext)
+            if !rule.isPaused {
+                RecurringPaymentManager.shared.processDueRecurringPayments(context: modelContext)
+            }
+        }
+    }
+    
+    private func deleteRule(_ rule: RecurringRuleItem) {
+        withAnimation {
+            modelContext.delete(rule)
+            AppDataStore.saveContext(modelContext)
+        }
+    }
+}
+
+public struct RecurringRuleEditSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \CategoryItem.name) private var categories: [CategoryItem]
+    @Query(sort: \PaymentMethodItem.name) private var paymentMethods: [PaymentMethodItem]
+    @AppStorage("default_currency") private var defaultCurrency: String = "HKD"
+    @AppStorage("app_language") private var appLanguage: String = "en"
+    
+    let rule: RecurringRuleItem?
+    
+    @State private var title: String = ""
+    @State private var amountString: String = ""
+    @State private var type: TransactionType = .expense
+    @State private var frequency: RecurrenceFrequency = .monthly
+    @State private var nextDueDate: Date = Date()
+    @State private var selectedCategoryId: UUID? = nil
+    @State private var selectedPaymentMethodId: UUID? = nil
+    @State private var toPaymentMethodId: UUID? = nil
+    @State private var isPaused: Bool = false
+    @State private var isExcludedFromBudget: Bool = false
+    
+    public init(rule: RecurringRuleItem?) {
+        self.rule = rule
+        _title = State(initialValue: rule?.title ?? "")
+        _amountString = State(initialValue: rule != nil ? String(format: "%.2f", rule!.amount) : "")
+        _type = State(initialValue: rule?.type ?? .expense)
+        _frequency = State(initialValue: (rule?.recurrenceFrequency == .never || rule == nil) ? .monthly : rule!.recurrenceFrequency)
+        _nextDueDate = State(initialValue: rule?.nextDueDate ?? Date())
+        _selectedCategoryId = State(initialValue: rule?.category?.id)
+        _selectedPaymentMethodId = State(initialValue: rule?.paymentMethod?.id)
+        _toPaymentMethodId = State(initialValue: rule?.toPaymentMethod?.id)
+        _isPaused = State(initialValue: rule?.isPaused ?? false)
+        _isExcludedFromBudget = State(initialValue: rule?.isExcludedFromBudget ?? false)
+    }
+    
+    public var body: some View {
+        NavigationStack {
+            Form {
+                Section(L10n.tr("Rule Title", lang: appLanguage)) {
+                    TextField("e.g. Netflix, iCloud+, Gym, Rent", text: $title)
+                        .lineLimit(1)
+                    
+                    HStack {
+                        Text(defaultCurrency).foregroundStyle(.secondary)
+                        TextField("0.00", text: $amountString)
+                            .keyboardType(.decimalPad)
+                            .font(.headline)
+                    }
+                }
+                
+                Section(L10n.tr("Repeating Payment", lang: appLanguage)) {
+                    Picker("Type", selection: $type) {
+                        ForEach(TransactionType.allCases, id: \.self) { t in
+                            Text(L10n.tr(t.rawValue, lang: appLanguage)).tag(t)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    Picker(L10n.tr("Repeat", lang: appLanguage), selection: $frequency) {
+                        ForEach([RecurrenceFrequency.weekly, .monthly, .yearly], id: \.self) { freq in
+                            Text(L10n.tr(freq.rawValue, lang: appLanguage)).tag(freq)
+                        }
+                    }
+                    
+                    DatePicker(L10n.tr("Next Due", lang: appLanguage), selection: $nextDueDate, displayedComponents: .date)
+                    
+                    Toggle(L10n.tr("Pause Subscription", lang: appLanguage), isOn: $isPaused)
+                }
+                
+                Section("Classification") {
+                    if type != .transfer {
+                        Picker("Category", selection: $selectedCategoryId) {
+                            Text("Uncategorized").tag(nil as UUID?)
+                            ForEach(categories) { cat in
+                                Label(cat.name, systemImage: cat.iconName)
+                                    .tag(cat.id as UUID?)
+                            }
+                        }
+                    }
+                    
+                    Picker(L10n.tr(type == .transfer ? "From Account" : "Account", lang: appLanguage), selection: $selectedPaymentMethodId) {
+                        Text("Unspecified").tag(nil as UUID?)
+                        ForEach(paymentMethods) { pm in
+                            Label(pm.name, systemImage: pm.iconName)
+                                .tag(pm.id as UUID?)
+                        }
+                    }
+                    
+                    if type == .transfer {
+                        Picker(L10n.tr("To Account", lang: appLanguage), selection: $toPaymentMethodId) {
+                            Text("Unspecified").tag(nil as UUID?)
+                            ForEach(paymentMethods.filter { $0.id != selectedPaymentMethodId }) { pm in
+                                Label(pm.name, systemImage: pm.iconName)
+                                    .tag(pm.id as UUID?)
+                            }
+                        }
+                    } else if type == .expense {
+                        Toggle(L10n.tr("Exclude from Budget", lang: appLanguage), isOn: $isExcludedFromBudget)
+                    }
+                }
+            }
+            .navigationTitle(rule == nil ? L10n.tr("New Recurring Rule", lang: appLanguage) : L10n.tr("Edit Recurring Rule", lang: appLanguage))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.tr("Cancel", lang: appLanguage)) { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L10n.tr("Save", lang: appLanguage)) {
+                        saveRule()
+                        dismiss()
+                    }
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (Double(amountString) ?? 0) <= 0 || (type == .transfer && (selectedPaymentMethodId == nil || toPaymentMethodId == nil)))
+                    .bold()
+                }
+            }
+        }
+    }
+    
+    private func saveRule() {
+        guard let amount = Double(amountString), amount > 0 else { return }
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedCategory = type == .transfer ? nil : categories.first(where: { $0.id == selectedCategoryId })
+        let resolvedPaymentMethod = paymentMethods.first(where: { $0.id == selectedPaymentMethodId })
+        let resolvedToPaymentMethod = type == .transfer ? paymentMethods.first(where: { $0.id == toPaymentMethodId }) : nil
+        
+        if let existing = rule {
+            existing.title = trimmedTitle
+            existing.amount = amount
+            existing.currency = defaultCurrency
+            existing.type = type
+            existing.recurrenceFrequency = frequency
+            existing.nextDueDate = nextDueDate
+            existing.category = resolvedCategory
+            existing.paymentMethod = resolvedPaymentMethod
+            existing.toPaymentMethod = resolvedToPaymentMethod
+            existing.isPaused = isPaused
+            existing.isExcludedFromBudget = type == .expense ? isExcludedFromBudget : false
+        } else {
+            let newRule = RecurringRuleItem(
+                title: trimmedTitle,
+                amount: amount,
+                currency: defaultCurrency,
+                type: type,
+                recurrenceFrequency: frequency,
+                nextDueDate: nextDueDate,
+                category: resolvedCategory,
+                paymentMethod: resolvedPaymentMethod,
+                toPaymentMethod: resolvedToPaymentMethod,
+                isExcludedFromBudget: type == .expense ? isExcludedFromBudget : false,
+                isPaused: isPaused
+            )
+            modelContext.insert(newRule)
+        }
+        
+        AppDataStore.saveContext(modelContext)
+        RecurringPaymentManager.shared.processDueRecurringPayments(context: modelContext)
     }
 }
