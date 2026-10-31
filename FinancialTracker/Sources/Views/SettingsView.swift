@@ -820,15 +820,14 @@ public struct RecurringManagementView: View {
             VStack(alignment: .trailing, spacing: 4) {
                 Text(rule.amount.formattedCurrency(rule.currency.isEmpty ? defaultCurrency : rule.currency))
                     .font(.callout.bold())
-                    .foregroundStyle(rule.isPaused ? .secondary : (rule.type == .income ? .green : .primary))
-                    .lineLimit(1)
+                    .foregroundStyle(rule.isPaused ? Color.secondary : (rule.type == .income ? Color.green : Color.primary))                    .lineLimit(1)
                 
                 Button {
                     togglePause(rule)
                 } label: {
                     Text(rule.isPaused ? L10n.tr("Resume", lang: appLanguage) : L10n.tr("Pause", lang: appLanguage))
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(rule.isPaused ? .green : .orange)
+                    .foregroundStyle(rule.isPaused ? Color.green : Color.orange)
                 }
                 .buttonStyle(.plain)
             }
